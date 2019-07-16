@@ -158,111 +158,6 @@ class Laplace(Dist):
             return lpdf
 
 
-class GaussianMLP(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation, slope, device, fixed_mean=None,
-                 fixed_var=None):
-        super().__init__()
-        self.distribution = Normal(device=device)
-        if fixed_mean is None:
-            self.mean = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
-                            device=device)
-        else:
-            self.mean = lambda x: fixed_mean * torch.ones(1).to(device)
-        if fixed_var is None:
-            self.log_var = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
-                               device=device)
-        else:
-            self.log_var = lambda x: np.log(fixed_var) * torch.ones(1).to(device)
-
-    def sample(self, *params):
-        return self.distribution.sample(*params)
-
-    def log_pdf(self, x, *params, **kwargs):
-        return self.distribution.log_pdf(x, *params, **kwargs)
-
-
-    def forward(self, *input):
-        if len(input) > 1:
-            x = torch.cat(input, dim=1)
-        else:
-            x = input[0]
-        return self.mean(x), self.log_var(x).exp()
-
-
-class ModularIVAE(nn.Module):
-    def __init__(self, latent_dim, data_dim, aux_dim, prior=None, decoder=None, encoder=None,
-                 n_layers=3, hidden_dim=50, activation='lrelu', slope=.1, device='cpu', anneal=False):
-        super().__init__()
-
-        self.data_dim = data_dim
-        self.latent_dim = latent_dim
-        self.aux_dim = aux_dim
-        self.hidden_dim = hidden_dim
-        self.n_layers = n_layers
-        self.activation = activation
-        self.slope = slope
-        self.anneal_params = anneal
-
-        if prior is None:
-            self.prior = GaussianMLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
-                                     device=device, fixed_mean=0)
-        else:
-            self.prior = prior
-
-        if decoder is None:
-            self.decoder = GaussianMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope,
-                                       device=device, fixed_var=.01)
-        else:
-            self.decoder = decoder
-
-        if encoder is None:
-            self.encoder = GaussianMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
-                                       slope=slope, device=device)
-        else:
-            self.encoder = encoder
-
-        self.apply(weights_init)
-
-        self._training_hyperparams = [1., 1., 1., 1., 1]
-
-    def forward(self, x, u):
-        encoder_params = self.encoder(x, u)
-        z = self.encoder.sample(*encoder_params)
-        decoder_params = self.decoder(z)
-        prior_params = self.prior(u)
-        return decoder_params, encoder_params, prior_params, z
-
-    def elbo(self, x, u):
-        decoder_params, encoder_params, prior_params, z = self.forward(x, u)
-        log_px_z = self.decoder.log_pdf(x, *decoder_params)
-        log_qz_xu = self.encoder.log_pdf(z, *encoder_params)
-        log_pz_u = self.prior.log_pdf(z, *prior_params)
-
-        if self.anneal_params:
-            a, b, c, d, N = self._training_hyperparams
-            M = z.size(0)
-            log_qz_tmp = self.encoder.log_pdf(z.view(M, 1, self.latent_dim), encoder_params, reduce=False,
-                                              param_shape=(1, M, self.latent_dim))
-            log_qz = torch.logsumexp(log_qz_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
-            log_qz_i = (torch.logsumexp(log_qz_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
-
-            return (a * log_px_z - b * (log_qz_xu - log_qz) - c * (log_qz - log_qz_i) - d * (
-                    log_qz_i - log_pz_u)).mean(), z
-        else:
-            return (log_px_z + log_pz_u - log_qz_xu).mean(), z
-
-    def anneal(self, N, max_iter, it):
-        thr = int(max_iter / 1.6)
-        a = 0.5 / self.decoder.log_var(0).exp().item()
-        self._training_hyperparams[-1] = N
-        self._training_hyperparams[0] = min(2 * a, a + a * it / thr)
-        self._training_hyperparams[1] = max(1, a * .3 * (1 - it / thr))
-        self._training_hyperparams[2] = min(1, it / thr)
-        self._training_hyperparams[3] = max(1, a * .5 * (1 - it / thr))
-        if it > thr:
-            self.anneal_params = False
-
-
 class iVAE(nn.Module):
     def __init__(self, latent_dim, data_dim, aux_dim, prior=None, decoder=None, encoder=None,
                  n_layers=3, hidden_dim=50, activation='lrelu', slope=.1, device='cpu', anneal=False):
@@ -361,7 +256,141 @@ class iVAE(nn.Module):
             self.anneal_params = False
 
 
-# MNIST MODELS
+class GaussianMLP(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation, slope, device, fixed_mean=None,
+                 fixed_var=None):
+        super().__init__()
+        self.distribution = Normal(device=device)
+        if fixed_mean is None:
+            self.mean = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                            device=device)
+        else:
+            self.mean = lambda x: fixed_mean * torch.ones(1).to(device)
+        if fixed_var is None:
+            self.log_var = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                               device=device)
+        else:
+            self.log_var = lambda x: np.log(fixed_var) * torch.ones(1).to(device)
+
+    def sample(self, *params):
+        return self.distribution.sample(*params)
+
+    def log_pdf(self, x, *params, **kwargs):
+        return self.distribution.log_pdf(x, *params, **kwargs)
+
+    def forward(self, *input):
+        if len(input) > 1:
+            x = torch.cat(input, dim=1)
+        else:
+            x = input[0]
+        return self.mean(x), self.log_var(x).exp()
+
+
+class LaplaceMLP(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation, slope, device, fixed_mean=None,
+                 fixed_var=None):
+        super().__init__()
+        self.distribution = Laplace(device=device)
+        if fixed_mean is None:
+            self.mean = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                            device=device)
+        else:
+            self.mean = lambda x: fixed_mean * torch.ones(1).to(device)
+        if fixed_var is None:
+            self.log_var = MLP(input_dim, output_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                               device=device)
+        else:
+            self.log_var = lambda x: np.log(fixed_var) * torch.ones(1).to(device)
+
+    def sample(self, *params):
+        return self.distribution.sample(*params)
+
+    def log_pdf(self, x, *params, **kwargs):
+        return self.distribution.log_pdf(x, *params, **kwargs)
+
+    def forward(self, *input):
+        if len(input) > 1:
+            x = torch.cat(input, dim=1)
+        else:
+            x = input[0]
+        return self.mean(x), self.log_var(x).exp()
+
+
+class ModularIVAE(nn.Module):
+    def __init__(self, latent_dim, data_dim, aux_dim, prior=None, decoder=None, encoder=None,
+                 n_layers=3, hidden_dim=50, activation='lrelu', slope=.1, device='cpu', anneal=False):
+        super().__init__()
+
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.aux_dim = aux_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+        self.anneal_params = anneal
+
+        if prior is None:
+            self.prior = GaussianMLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                                     device=device, fixed_mean=0)
+        else:
+            self.prior = prior
+
+        if decoder is None:
+            self.decoder = GaussianMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                                       device=device, fixed_var=.01)
+        else:
+            self.decoder = decoder
+
+        if encoder is None:
+            self.encoder = GaussianMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
+                                       slope=slope, device=device)
+        else:
+            self.encoder = encoder
+
+        self.apply(weights_init)
+
+        self._training_hyperparams = [1., 1., 1., 1., 1]
+
+    def forward(self, x, u):
+        encoder_params = self.encoder(x, u)
+        z = self.encoder.sample(*encoder_params)
+        decoder_params = self.decoder(z)
+        prior_params = self.prior(u)
+        return decoder_params, encoder_params, prior_params, z
+
+    def elbo(self, x, u):
+        decoder_params, encoder_params, prior_params, z = self.forward(x, u)
+        log_px_z = self.decoder.log_pdf(x, *decoder_params)
+        log_qz_xu = self.encoder.log_pdf(z, *encoder_params)
+        log_pz_u = self.prior.log_pdf(z, *prior_params)
+
+        if self.anneal_params:
+            a, b, c, d, N = self._training_hyperparams
+            M = z.size(0)
+            log_qz_tmp = self.encoder.log_pdf(z.view(M, 1, self.latent_dim), encoder_params, reduce=False,
+                                              param_shape=(1, M, self.latent_dim))
+            log_qz = torch.logsumexp(log_qz_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
+            log_qz_i = (torch.logsumexp(log_qz_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
+
+            return (a * log_px_z - b * (log_qz_xu - log_qz) - c * (log_qz - log_qz_i) - d * (
+                    log_qz_i - log_pz_u)).mean(), z
+        else:
+            return (log_px_z + log_pz_u - log_qz_xu).mean(), z
+
+    def anneal(self, N, max_iter, it):
+        thr = int(max_iter / 1.6)
+        a = 0.5 / self.decoder.log_var(0).exp().item()
+        self._training_hyperparams[-1] = N
+        self._training_hyperparams[0] = min(2 * a, a + a * it / thr)
+        self._training_hyperparams[1] = max(1, a * .3 * (1 - it / thr))
+        self._training_hyperparams[2] = min(1, it / thr)
+        self._training_hyperparams[3] = max(1, a * .5 * (1 - it / thr))
+        if it > thr:
+            self.anneal_params = False
+
+
+# MNIST MODELS - OLD IMPLEMENTATION
 
 class ConvolutionalVAEforMNIST(nn.Module):
     def __init__(self, latent_dim):
