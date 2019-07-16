@@ -116,7 +116,7 @@ def generate_mixing_matrix(d_sources: int, d_data=None, lin_type='uniform', cond
 
 
 def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='lap', var_bounds=np.array([0.5, 3]),
-                                   dtype=np.float32, uncentered=False):
+                                   dtype=np.float32, uncentered=False, centers=None):
     """
     Generate source signal following a TCL distribution. Within each segment, sources are independent.
     The distribution withing each segment is given by the keyword `dist`
@@ -127,6 +127,8 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='la
     @param var_bounds: optional, upper and lower bounds for the modulation parameter
     @param dtype: data type for data
     @param bool uncentered: True to generate uncentered data
+    @param centers: if uncentered, pass the desired centers to this parameter. If None, the centers will be drawn
+                    at random
     @return:
         sources: output source array of shape (n, d)
         labels: label for each point; the label is the component
@@ -140,7 +142,11 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='la
 
     L = np.random.uniform(var_lb, var_ub, (n_seg, d))
     if uncentered:
-        m = np.random.uniform(-5, 5, (n_seg, d))
+        if centers is not None:
+            assert centers.shape == (n_seg, d)
+            m = centers
+        else:
+            m = np.random.uniform(-5, 5, (n_seg, d))
     else:
         m = np.zeros((n_seg, d))
 
@@ -165,7 +171,7 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='la
 
 def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='lap', activation='lrelu', batch_size=250,
                   seed=10, slope=.1, var_bounds=np.array([0.5, 3]), lin_type='uniform', n_iter_4_cond=1e4,
-                  dtype=np.float32, uncentered=False, noisy=0):
+                  dtype=np.float32, noisy=0, uncentered=False, centers=None):
     """
     Generate artificial data with arbitrary mixing
     @param int n_per_seg: number of observations per segment
@@ -198,8 +204,8 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='l
 
     # sources
     sources, labels, m, L = generate_nonstationary_sources(n_per_seg, n_seg, d_sources, prior=prior,
-                                                           var_bounds=var_bounds,
-                                                           dtype=dtype, uncentered=uncentered)
+                                                           var_bounds=var_bounds, dtype=dtype,
+                                                           uncentered=uncentered, centers=centers)
     n = n_per_seg * n_seg
 
     # non linearity
@@ -262,13 +268,7 @@ class SyntheticDataset(Dataset):
     def __init__(self, path, device='cpu'):
         self.device = device
         self.path = path
-        try:
-            data = np.load(path)
-        except:
-            # error occured because many scripts were attempting to create it at same time.
-            # one solution would be to wait and retry, the other would be to make sure
-            # datasets are all created already.
-            pass
+        data = np.load(path)
         self.data = data
         self.s = torch.from_numpy(data['s']).to(self.device)
         self.x = torch.from_numpy(data['x']).to(self.device)
