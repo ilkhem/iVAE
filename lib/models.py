@@ -158,6 +158,28 @@ class Laplace(Dist):
             return lpdf
 
 
+class Bernoulli(Dist):
+    def __init__(self, device='cpu'):
+        super().__init__()
+        self.device = device
+        self._dist = dist.bernoulli.Bernoulli(0.5 * torch.ones(1).to(self.device))
+        self.name = 'bernoulli'
+
+    def sample(self, p):
+        eps = self._dist.sample(p.size())
+        return eps
+
+    def log_pdf(self, x, f, reduce=True, param_shape=None):
+        """compute the log-pdf of a laplace distribution with diagonal covariance"""
+        if param_shape is not None:
+            f = f.view(param_shape)
+        lpdf = x * torch.log(f) + (1 - x) * torch.log(1 - f)
+        if reduce:
+            return lpdf.sum(dim=-1)
+        else:
+            return lpdf
+
+
 class iVAE(nn.Module):
     def __init__(self, latent_dim, data_dim, aux_dim, prior=None, decoder=None, encoder=None,
                  n_layers=3, hidden_dim=50, activation='lrelu', slope=.1, device='cpu', anneal=False):
@@ -254,6 +276,114 @@ class iVAE(nn.Module):
         self._training_hyperparams[3] = max(1, a * .5 * (1 - it / thr))
         if it > thr:
             self.anneal_params = False
+
+
+class DiscreteIVAE(nn.Module):
+    def __init__(self, latent_dim, data_dim, aux_dim,
+                 n_layers=2, hidden_dim=20, activation='lrelu', slope=.1, device='cpu'):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.aux_dim = aux_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+
+        # prior_params
+        self.prior_mean = torch.zeros(1).to(device)
+        self.logl = MLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+        # decoder params
+        self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+        # encoder params
+        self.g = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                     device=device)
+        self.logv = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                        device=device)
+
+    def encoder_params(self, x, u):
+        xu = torch.cat((x, u), 1)
+        g = self.g(xu)
+        logv = self.logv(xu)
+        return g, logv
+
+    def decoder_params(self, z):
+        f = self.f(z)
+        return torch.sigmoid(f)
+
+    def prior_params(self, u):
+        logl = self.logl(u)
+        return self.prior_mean, logl
+
+    def forward(self, x, u):
+        prior_params = self.prior_params(u)
+        encoder_params = self.encoder_params(x, u)
+        z = self.reparameterize(*encoder_params)
+        decoder_params = self.decoder_params(z)
+        return decoder_params, encoder_params, z, prior_params
+
+    @staticmethod
+    def reparameterize(mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(mu)
+        return mu + eps * std
+
+    def elbo_discrete(self, x, u):
+        f, (g, logv), z, (h, logl) = self.forward(x, u)
+        BCE = -F.binary_cross_entropy(f, x, reduction='sum')
+        l = logl.exp()
+        v = logv.exp()
+        KLD = -0.5 * torch.sum(logl - logv - 1 + (g - h).pow(2) / l + v / l)
+        return (BCE + KLD) / x.size(0), z  # average per batch
+
+
+class DiscreteVAE(nn.Module):
+    def __init__(self, latent_dim, data_dim,
+                 n_layers=2, hidden_dim=20, activation='lrelu', slope=.1, device='cpu'):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+
+        # decoder params
+        self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+        # encoder params
+        self.g = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                     device=device)
+        self.logv = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope,
+                        device=device)
+
+    def encoder_params(self, x):
+        g = self.g(x)
+        logv = self.logv(x)
+        return g, logv
+
+    def decoder_params(self, z):
+        f = self.f(z)
+        return torch.sigmoid(f)
+
+    def forward(self, x):
+        encoder_params = self.encoder_params(x)
+        z = self.reparameterize(*encoder_params)
+        decoder_params = self.decoder_params(z)
+        return decoder_params, encoder_params, z
+
+    @staticmethod
+    def reparameterize(mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(mu)
+        return mu + eps * std
+
+    def elbo_discrete(self, x):
+        f, (g, logv), z = self.forward(x)
+        BCE = -F.binary_cross_entropy(f, x, reduction='sum')
+        v = logv.exp()
+        KLD = 0.5 * torch.sum(logv + 1 - g.pow(2) - v)
+        return (BCE + KLD) / x.size(0), z  # average per batch
+
 
 
 class GaussianMLP(nn.Module):

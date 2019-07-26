@@ -115,7 +115,7 @@ def generate_mixing_matrix(d_sources: int, d_data=None, lin_type='uniform', cond
     return A
 
 
-def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='lap', var_bounds=np.array([0.5, 3]),
+def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='gauss', var_bounds=np.array([0.5, 3]),
                                    dtype=np.float32, uncentered=False, centers=None):
     """
     Generate source signal following a TCL distribution. Within each segment, sources are independent.
