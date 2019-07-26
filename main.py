@@ -27,6 +27,8 @@ if __name__ == '__main__':
                              'This will overwrite the `file` argument if given. (default None). '
                              'In case of this argument and `file` argument being None, a default dataset '
                              'described in data.py will be created.')
+    parser.add_argument('-d', '--latent-dim', type=int, default=None,
+                        help='latent dimension. If None, equals the latent dim of the dataset. (default None)')
     parser.add_argument('-b', '--batch-size', type=int, default=64, help='batch size (default 64)')
     parser.add_argument('-e', '--epochs', type=int, default=20, help='number of epochs (default 20)')
     parser.add_argument('-m', '--max-iter', type=int, default=None, help='max iters, overwrites --epochs')
@@ -71,6 +73,10 @@ if __name__ == '__main__':
         metadata.update(train_loader.get_metadata())
     if args.max_iter is None:
         args.max_iter = len(train_loader) * args.epochs
+
+    if args.latent_dim is not None:
+        latent_dim = args.latent_dim
+        metadata.update({"train_latent_dim": latent_dim})
 
     # define model and optimizer
     model = iVAE(latent_dim, data_dim, aux_dim, activation='lrelu', device=device, hidden_dim=args.hidden_dim,
