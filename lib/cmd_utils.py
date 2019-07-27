@@ -24,6 +24,16 @@ def parse_main_args(line):
     args = parser.parse_args(line)
     return args
 
+def parse_data_args(line):
+    data_args = line.split('-x')
+    if len(data_args) == 2:
+        data_args = data_args[1]
+    elif len(data_args) == 1:
+        data_args = None
+    else:
+        raise Exception('bad format for arg line')
+    return data_args
+
 def seedify(arg_file):
     srange = [1, 1]
     args = sys.argv
@@ -45,8 +55,9 @@ def seedify(arg_file):
 def create_dataset_before(args_file):
     with open(args_file, 'r') as f:
         for line in f:
-            args = parse_main_args(line.split())
-            create_if_not_exist_dataset(root='data/', arg_str=args.data_args)
+            # args = parse_main_args(line.split())
+            dargs = parse_data_args(line)
+            create_if_not_exist_dataset(root='data/', arg_str=dargs)
 
 def assign_cluster(args_file):
     with open(args_file, 'r') as f:

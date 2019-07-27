@@ -27,7 +27,7 @@ if __name__ == '__main__':
                              'This will overwrite the `file` argument if given. (default None). '
                              'In case of this argument and `file` argument being None, a default dataset '
                              'described in data.py will be created.')
-    parser.add_argument('-d', '--latent-dim', type=int, default=None,
+    parser.add_argument('-z', '--latent-dim', type=int, default=None,
                         help='latent dimension. If None, equals the latent dim of the dataset. (default None)')
     parser.add_argument('-b', '--batch-size', type=int, default=64, help='batch size (default 64)')
     parser.add_argument('-e', '--epochs', type=int, default=20, help='number of epochs (default 20)')
