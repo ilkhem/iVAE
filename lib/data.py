@@ -361,7 +361,8 @@ def create_if_not_exist_dataset(root='data/', nps=1000, ns=40, dl=2, dd=4, nl=3,
     if arg_str is not None:
         # overwrites all other arg values
         # arg_str should be of this form: nps_ns_dl_dd_nl_s_p_a_u_n
-        arg_list = arg_str.split('_')
+        arg_list = arg_str.split('\n')[0].split('_')
+        print(arg_list)
         assert len(arg_list) == 10
         nps, ns, dl, dd, nl = map(int, arg_list[0:5])
         p, a = arg_list[6:8]

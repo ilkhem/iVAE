@@ -57,6 +57,7 @@ def create_dataset_before(args_file):
         for line in f:
             # args = parse_main_args(line.split())
             dargs = parse_data_args(line)
+            print(dargs)
             create_if_not_exist_dataset(root='data/', arg_str=dargs)
 
 def assign_cluster(args_file):

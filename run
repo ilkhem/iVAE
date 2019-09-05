@@ -18,7 +18,7 @@ echo "generating seeded args"
 python -c "from lib.cmd_utils import seedify; seedify('args_gpu.txt')" $1 $2
 python -c "from lib.cmd_utils import seedify; seedify('args_cpu.txt')" $1 $2
 
-clear
+#clear
 cat args_gpu.txt
 echo
 read -p "Are you sure you want to run these arguments on gpu? (y/Y to proceed) " -n 1 -r
@@ -27,7 +27,7 @@ if [[ $REPLY =~ ^[yY]$ ]]
 then
         sbatch --array=1-$(wc -l args_gpu_seeded.txt | awk '{ print $1 }') slurm_script_gpu.sbatch
 fi
-clear
+#clear
 cat args_cpu.txt
 echo
 read -p "Are you sure you want to run these arguments on cpu? (y/Y to proceed) " -n 1 -r
