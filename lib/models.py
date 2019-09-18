@@ -328,13 +328,67 @@ class DiscreteIVAE(nn.Module):
         eps = torch.randn_like(mu)
         return mu + eps * std
 
-    def elbo_discrete(self, x, u):
+    def elbo(self, x, u):
         f, (g, logv), z, (h, logl) = self.forward(x, u)
         BCE = -F.binary_cross_entropy(f, x, reduction='sum')
         l = logl.exp()
         v = logv.exp()
         KLD = -0.5 * torch.sum(logl - logv - 1 + (g - h).pow(2) / l + v / l)
         return (BCE + KLD) / x.size(0), z  # average per batch
+
+
+class VAE(nn.Module):
+
+    def __init__(self, latent_dim, data_dim, decoder=None, encoder=None,
+                 n_layers=3, hidden_dim=50, activation='lrelu', slope=.1, device='cpu'):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+
+        if decoder is None:
+            self.decoder_dist = Normal(device=device)
+        else:
+            self.decoder_dist = decoder
+
+        if encoder is None:
+            self.encoder_dist = Normal(device=device)
+        else:
+            self.encoder_dist = encoder
+        self.prior_dist = Normal(device)
+        self.prior_mean = torch.ones(0).to(device)
+        self.prior_var = torch.ones(1).to(device)
+
+        self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+        self.decoder_var = .01 * torch.ones(1).to(device)
+        self.g = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+        self.logv = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
+
+    def encoder_params(self, x):
+        g = self.g(x)
+        logv = self.logv(x)
+        return g, logv.exp()
+
+    def decoder_params(self, s):
+        f = self.f(s)
+        return f, self.decoder_var
+
+    def forward(self, x):
+        encoder_params = self.encoder_params(x)
+        z = self.encoder_dist.sample(*encoder_params)
+        decoder_params = self.decoder_params(z)
+        return decoder_params, encoder_params, z, (self.prior_mean, self.prior_var)
+
+    def elbo(self, x):
+        decoder_params, encoder_params, z, prior_params = self.forward(x)
+        log_px_z = self.decoder_dist.log_pdf(x, *decoder_params)
+        log_qz_x = self.encoder_dist.log_pdf(z, *encoder_params)
+        log_pz = self.prior_dist.log_pdf(z, *prior_params)
+
+        return (log_px_z + log_pz - log_qz_x).mean(), z
 
 
 class DiscreteVAE(nn.Module):
@@ -377,13 +431,12 @@ class DiscreteVAE(nn.Module):
         eps = torch.randn_like(mu)
         return mu + eps * std
 
-    def elbo_discrete(self, x):
+    def elbo(self, x):
         f, (g, logv), z = self.forward(x)
         BCE = -F.binary_cross_entropy(f, x, reduction='sum')
         v = logv.exp()
         KLD = 0.5 * torch.sum(logv + 1 - g.pow(2) - v)
         return (BCE + KLD) / x.size(0), z  # average per batch
-
 
 
 class GaussianMLP(nn.Module):
