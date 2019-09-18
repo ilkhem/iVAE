@@ -68,7 +68,7 @@ def sigmoid(x):
 
 
 def generate_mixing_matrix(d_sources: int, d_data=None, lin_type='uniform', cond_threshold=25, n_iter_4_cond=None,
-                           dtype=np.float32):
+                           dtype=np.float32, staircase=False):
     """
     Generate square linear mixing matrix
     @param d_sources: dimension of the latent sources
@@ -78,10 +78,31 @@ def generate_mixing_matrix(d_sources: int, d_data=None, lin_type='uniform', cond
     @param n_iter_4_cond: or instead, number of iteration to compute condition threshold of the mixing matrix.
         cond_threshold is ignored in this case/
     @param dtype: data type for data
+    @param staircase: if True, generate mixing that preserves staircase form of sources
     @return:
         A: mixing matrix
     @rtype: np.ndarray
     """
+
+    def _gen_matrix(ds, dd, dtype):
+        A = (np.random.uniform(0, 2, (ds, dd)) - 1).astype(dtype)
+        for i in range(dd):
+            A[:, i] /= np.sqrt((A[:, i] ** 2).sum())
+        return A
+
+    def _gen_matrix_staircase(ds, dd, dtype, sq=None):
+        if sq is None:
+            sq = dd > 2
+        A1 = np.zeros((ds, 1))  # first row of A should be e_1
+        A1[0, 0] = 1
+        A2 = np.random.uniform(0, 2, (ds, dd - 1)) - 1
+        if sq:
+            A2[0] = 0
+        A = np.concatenate([A1, A2], axis=1).astype(dtype)
+        for i in range(dd):
+            A[:, i] /= np.sqrt((A[:, i] ** 2).sum())
+        return A
+
     if d_data is None:
         d_data = d_sources
 
@@ -101,22 +122,18 @@ def generate_mixing_matrix(d_sources: int, d_data=None, lin_type='uniform', cond
 
             cond_thresh = np.percentile(cond_list, 25)  # only accept those below 25% percentile
 
-        A = (np.random.uniform(0, 2, (d_sources, d_data)) - 1).astype(dtype)
-        for i in range(d_data):
-            A[:, i] /= np.sqrt((A[:, i] ** 2).sum())
-
+        gen_mat = _gen_matrix if not staircase else _gen_matrix_staircase
+        A = gen_mat(d_sources, d_data, dtype)
         while np.linalg.cond(A) > cond_thresh:
-            # generate a new A matrix!
-            A = (np.random.uniform(0, 2, (d_sources, d_data)) - 1).astype(dtype)
-            for i in range(d_data):
-                A[:, i] /= np.sqrt((A[:, i] ** 2).sum())
+            A = gen_mat(d_sources, d_data, dtype)
+
     else:
         raise ValueError('incorrect method')
     return A
 
 
 def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='gauss', var_bounds=np.array([0.5, 3]),
-                                   dtype=np.float32, uncentered=False, centers=None):
+                                   dtype=np.float32, uncentered=False, centers=None, staircase=False):
     """
     Generate source signal following a TCL distribution. Within each segment, sources are independent.
     The distribution withing each segment is given by the keyword `dist`
@@ -129,6 +146,7 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
     @param bool uncentered: True to generate uncentered data
     @param centers: if uncentered, pass the desired centers to this parameter. If None, the centers will be drawn
                     at random
+    @param staircase: if True, s_1 will have a staircase form, used to break TCL.
     @return:
         sources: output source array of shape (n, d)
         labels: label for each point; the label is the component
@@ -150,6 +168,15 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
     else:
         m = np.zeros((n_seg, d))
 
+    if staircase:
+        m1 = 2 * np.arange(n_seg).reshape((-1, 1))
+        L[:, 0] = 1
+        if uncentered:
+            m2 = np.random.uniform(-1, 1, (n_seg, d - 1))
+        else:
+            m2 = np.zeros((n_seg, d - 1))
+        m = np.concatenate([m1, m2], axis=1)
+
     labels = np.zeros(n, dtype=dtype)
     if prior == 'lap':
         sources = np.random.laplace(0, 1 / np.sqrt(2), (n, d)).astype(dtype)
@@ -169,9 +196,10 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
     return sources, labels, m, L
 
 
-def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='lap', activation='lrelu', batch_size=250,
+def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='gauss', activation='lrelu', batch_size=0,
                   seed=10, slope=.1, var_bounds=np.array([0.5, 3]), lin_type='uniform', n_iter_4_cond=1e4,
-                  dtype=np.float32, noisy=0, uncentered=False, centers=None):
+                  dtype=np.float32, noisy=0, uncentered=False, centers=None, staircase=False, discrete=False,
+                  one_hot_labels=True):
     """
     Generate artificial data with arbitrary mixing
     @param int n_per_seg: number of observations per segment
@@ -188,8 +216,11 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='l
     @param str lin_type: specifies the type of matrix entries; can be `uniform` or `orthogonal`
     @param int n_iter_4_cond: number of iteration to compute condition threshold of the mixing matrix
     @param dtype: data type for data
-    @param bool uncentered: True to generate uncentered data
     @param float noisy: if non-zero, controls the level of noise added to observations
+    @param bool uncentered: True to generate uncentered data
+    @param np.ndarray centers: array of centers if uncentered == True
+    @param bool staircase: if True, generate staircase data
+    @param bool one_hot_labels: if True, transform labels into one-hot vectors
 
     @return:
         tuple of batches of generated (sources, data, auxiliary variables, mean, variance)
@@ -203,9 +234,9 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='l
         d_data = d_sources
 
     # sources
-    sources, labels, m, L = generate_nonstationary_sources(n_per_seg, n_seg, d_sources, prior=prior,
-                                                           var_bounds=var_bounds, dtype=dtype,
-                                                           uncentered=uncentered, centers=centers)
+    S, U, M, L = generate_nonstationary_sources(n_per_seg, n_seg, d_sources, prior=prior,
+                                                var_bounds=var_bounds, dtype=dtype,
+                                                uncentered=uncentered, centers=centers, staircase=staircase)
     n = n_per_seg * n_seg
 
     # non linearity
@@ -221,41 +252,44 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='l
         raise ValueError('incorrect non linearity: {}'.format(activation))
 
     # Mixing time!
-    assert n_layers > 1  # suppose we always have at least 2 layers. The last layer doesn't have a non-linearity
-    A = generate_mixing_matrix(d_sources, d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
-    X = act_f(np.dot(sources, A))
-    if d_sources != d_data:
-        B = generate_mixing_matrix(d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
-    else:
-        B = A
-    for nl in range(1, n_layers):
+    X = S.copy()
+    for nl in range(n_layers):
+        A = generate_mixing_matrix(X.shape[1], d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype,
+                                   staircase=staircase)
         if nl == n_layers - 1:
-            X = np.dot(X, B)
+            X = np.dot(X, A)
         else:
-            X = act_f(np.dot(X, B))
+            X = act_f(np.dot(X, A))
 
     # add noise:
     if noisy:
         X += noisy * np.random.randn(*X.shape)
 
-    # always return batches (as a list), even if number of batches is one,
+    if discrete:
+        X = np.random.binomial(1, sigmoid(X))
+
     if not batch_size:
-        return [sources], [X], to_one_hot([labels], m=n_seg), m, L
+        if one_hot_labels:
+            U = to_one_hot([U], m=n_seg)[0]
+        return S, X, U, M, L
     else:
         idx = np.random.permutation(n)
-        Xb, Sb, Ub = [], [], []
+        Xb, Sb, Ub, Mb, Lb = [], [], [], [], []
         n_batches = int(n / batch_size)
         for c in range(n_batches):
-            Sb += [sources[idx][c * batch_size:(c + 1) * batch_size]]
+            Sb += [S[idx][c * batch_size:(c + 1) * batch_size]]
             Xb += [X[idx][c * batch_size:(c + 1) * batch_size]]
-            Ub += [labels[idx][c * batch_size:(c + 1) * batch_size]]
-        return Sb, Xb, to_one_hot(Ub, m=n_seg), m, L
+            Ub += [U[idx][c * batch_size:(c + 1) * batch_size]]
+            Mb += [M[idx][c * batch_size:(c + 1) * batch_size]]
+            Lb += [L[idx][c * batch_size:(c + 1) * batch_size]]
+        if one_hot_labels:
+            Ub = to_one_hot(Ub, m=n_seg)
+        return Sb, Xb, Ub, Mb, Lb
 
 
 def save_data(path, *args, **kwargs):
     kwargs['batch_size'] = 0  # leave batch creation to torch DataLoader
-    Sb, Xb, Ub, m, L = generate_data(*args, **kwargs)
-    Sb, Xb, Ub = Sb[0], Xb[0], Ub[0]
+    Sb, Xb, Ub, Mb, Lb = generate_data(*args, **kwargs)
     print('Creating dataset {} ...'.format(path))
     dir_path = '/'.join(path.split('/')[:-1])
     if not os.path.exists(dir_path):
@@ -302,10 +336,47 @@ class SyntheticDataset(Dataset):
                 }
 
 
+class CustomSyntheticDataset(Dataset):
+    def __init__(self, X, U, S, device='cpu'):
+        self.device = device
+        self.x = torch.from_numpy(X).to(self.device)
+        self.u = torch.from_numpy(U).to(self.device)
+        if S is not None:
+            self.s = torch.from_numpy(S).to(self.device)
+        else:
+            self.s = self.x
+        self.len = self.x.shape[0]
+        self.latent_dim = self.s.shape[1]
+        self.aux_dim = self.u.shape[1]
+        self.data_dim = self.x.shape[1]
+        self.nps = int(self.len / self.aux_dim)
+        print('data loaded on {}'.format(self.x.device))
+
+    def get_dims(self):
+        return self.data_dim, self.latent_dim, self.aux_dim
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, index):
+        return self.x[index], self.u[index], self.s[index]
+
+    def get_metadata(self):
+        return {'path': self.path,
+                'nps': self.nps,
+                'ns': self.aux_dim,
+                'n': self.len,
+                'latent_dim': self.latent_dim,
+                'data_dim': self.data_dim,
+                'aux_dim': self.aux_dim,
+                }
+
+
 class DataLoaderGPU:
     """
     A custom data loader on GPU.
     """
+
     def __init__(self, path, batch_size, shuffle=True):
         self.device = torch.device('cuda')
         self.path = path
