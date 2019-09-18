@@ -170,7 +170,7 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
 
     if staircase:
         m1 = 2 * np.arange(n_seg).reshape((-1, 1))
-        L[:, 0] = 1
+        L[:, 0] = .2
         if uncentered:
             m2 = np.random.uniform(-1, 1, (n_seg, d - 1))
         else:
@@ -289,12 +289,12 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
 
 def save_data(path, *args, **kwargs):
     kwargs['batch_size'] = 0  # leave batch creation to torch DataLoader
-    Sb, Xb, Ub, Mb, Lb = generate_data(*args, **kwargs)
+    S, X, U, M, L = generate_data(*args, **kwargs)
     print('Creating dataset {} ...'.format(path))
     dir_path = '/'.join(path.split('/')[:-1])
     if not os.path.exists(dir_path):
         os.makedirs('/'.join(path.split('/')[:-1]))
-    np.savez_compressed(path, s=Sb, x=Xb, u=Ub, m=m, L=L)
+    np.savez_compressed(path, s=S, x=X, u=U, m=M, L=L)
     print(' ... done')
 
 
