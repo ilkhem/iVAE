@@ -3,9 +3,9 @@
 # run script $1 for all arguments in file $2, for seeds between optional $3 and $4 (default 1),
 # on right cluster (cpu or gpu)
 
-# mkdir -p slurm_log
-# mkdir -p log
-# mkdir -p ckpt
+mkdir -p slurm_log
+mkdir -p log
+mkdir -p ckpt
 
 echo "saving old argument file to history"
 cat $2 >> .$2.hist

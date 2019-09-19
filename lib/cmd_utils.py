@@ -58,4 +58,4 @@ def seedify(arg_file):
         with open(seeded_name, 'w') as sf:
             for line in f:
                 for s in range(srange[0], srange[1] + 1):
-                    sf.write(line.split('\n')[0] + ' --seed' + str(s) + '\n')
+                    sf.write(line.split('\n')[0] + ' --seed ' + str(s) + '\n')
