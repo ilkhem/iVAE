@@ -362,8 +362,7 @@ class CustomSyntheticDataset(Dataset):
         return self.x[index], self.u[index], self.s[index]
 
     def get_metadata(self):
-        return {'path': self.path,
-                'nps': self.nps,
+        return {'nps': self.nps,
                 'ns': self.aux_dim,
                 'n': self.len,
                 'latent_dim': self.latent_dim,

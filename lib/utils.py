@@ -167,7 +167,7 @@ class Logger:
 
     def log(self):
         for key in self.keys():
-            self.log_dict[key].append(self.running_means[key].avg)
+            self.log_dict[key].append(self.running_means[key].avg * 1.) # make sure we save floats
         self._reset_means()
 
     def get_last(self, key):
