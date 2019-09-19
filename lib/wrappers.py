@@ -9,66 +9,12 @@ import tensorflow as tf
 from .data import CustomSyntheticDataset
 from .metrics import mean_corr_coef as mcc
 from .models import iVAE, DiscreteIVAE, VAE, DiscreteVAE
+from .utils import Logger, checkpoint
 
 
-def IVAE_wrapper(X, U, batch_size=256, max_iter=7e4, seed=0, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                 activation='lrelu', anneal=False, slope=.1):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    device = torch.device('cuda' if cuda else 'cpu')
-    print('training on {}'.format(torch.cuda.get_device_name(device) if cuda else 'cpu'))
-
-    # load data
-    print('Creating shuffled dataset..')
-    dset = CustomSyntheticDataset(X, U, None, 'cpu')
-    loader_params = {'num_workers': 1, 'pin_memory': True} if cuda else {}
-    train_loader = DataLoader(dset, shuffle=True, batch_size=batch_size, **loader_params)
-    data_dim, latent_dim, aux_dim = dset.get_dims()
-    N = len(dset)
-    max_epochs = int(max_iter // len(train_loader) + 1)
-
-    # define model and optimizer
-    print('Defining model and optimizer..')
-    model = iVAE(latent_dim, data_dim, aux_dim, activation=activation, device=device,
-                 n_layers=n_layers, hidden_dim=hidden_dim, anneal=anneal, slope=slope)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True)
-
-    # training loop
-    print("Training..")
-    it = 0
-    model.train()
-    while it < max_iter:
-        elbo_train = 0
-        epoch = it // len(train_loader) + 1
-        for _, (x, u, _) in enumerate(train_loader):
-            it += 1
-            optimizer.zero_grad()
-
-            x, u = x.to(device), u.to(device)
-
-            elbo, z_est = model.elbo(x, u)
-            elbo.mul(-1).backward()
-            optimizer.step()
-
-            elbo_train += -elbo.item()
-
-        elbo_train /= len(train_loader)
-
-        scheduler.step(elbo_train)
-        print('epoch {}/{} \tloss: {}'.format(epoch, max_epochs, elbo_train))
-
-    Xt, Ut = dset.x, dset.u
-    decoder_params, encoder_params, z, prior_params = model(Xt, Ut)
-    params = {'decoder': decoder_params, 'encoder': encoder_params, 'prior': prior_params}
-
-    return z, model, params
-
-
-def IVAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                  activation='lrelu', anneal=False, slope=.1, discrete=False):
-
+def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
+                 activation='lrelu', anneal=False, slope=.1, discrete=False,
+                 log_folder='log/', ckpt_folder=None):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -95,15 +41,19 @@ def IVAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
                              n_layers=n_layers, hidden_dim=hidden_dim, device=device, slope=slope)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=2, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True)
+
+    logger = Logger(logdir=log_folder)
+    exp_id = logger.get_id()
+    logger.add('elbo')
+    logger.add('perf')
 
     # training loop
     print("Training..")
     it = 0
     model.train()
     while it < max_iter:
-        elbo_train = 0
-        perf_train = 0
+
         epoch = it // len(train_loader) + 1
         for _, (x, u, z) in enumerate(train_loader):
             it += 1
@@ -117,26 +67,34 @@ def IVAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
             elbo.mul(-1).backward()
             optimizer.step()
 
-            elbo_train += -elbo.item()
+            logger.update('elbo', -elbo.item())
 
-            perf = mcc(z_est.cpu().detach().numpy(), z.cpu().numpy())
-            perf_train += perf
+            if S is not None:
+                perf = mcc(z_est.cpu().detach().numpy(), z.cpu().numpy())
+                logger.update('perf', perf)
 
-        elbo_train /= len(train_loader)
-        perf_train /= len(train_loader)
+            if it % int(max_iter / 5) == 0 and ckpt_folder is not None:
+                checkpoint(ckpt_folder, exp_id, it, model, optimizer,
+                           logger.get_last('elbo'), logger.get_last('perf'))
 
-        scheduler.step(elbo_train)
-        print('epoch {}/{} \tloss: {}\tperf: {}'.format(epoch, max_epochs, elbo_train, perf_train))
+        logger.log()
+        scheduler.step(logger.get_last('elbo'))
+
+        if S is not None:
+            print('epoch {}/{} \tloss: {}\tperf: {}'.format(epoch, max_epochs, logger.get_last('elbo'),
+                                                            logger.get_last('perf')))
+        else:
+            print('epoch {}/{} \tloss: {}'.format(epoch, max_epochs, logger.get_last('elbo')))
 
     Xt, Ut = dset.x, dset.u
     decoder_params, encoder_params, z, prior_params = model(Xt, Ut)
     params = {'decoder': decoder_params, 'encoder': encoder_params, 'prior': prior_params}
 
-    return z, model, params
+    return z, model, params, logger
 
 
 def VAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                  activation='lrelu', slope=.1, discrete=False):
+                 activation='lrelu', slope=.1, discrete=False):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -157,7 +115,7 @@ def VAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, h
     print('Defining model and optimizer..')
     if not discrete:
         model = VAE(latent_dim, data_dim, aux_dim, activation=activation, device=device,
-                     n_layers=n_layers, hidden_dim=hidden_dim, slope=slope)
+                    n_layers=n_layers, hidden_dim=hidden_dim, slope=slope)
     else:
         model = DiscreteVAE(latent_dim, data_dim, aux_dim, activation=activation,
                             n_layers=n_layers, hidden_dim=hidden_dim, device=device, slope=slope)
@@ -199,8 +157,6 @@ def VAE_wrapper2(X, U, S, batch_size=256, max_iter=7e4, seed=None, n_layers=3, h
     params = {'decoder': decoder_params, 'encoder': encoder_params, 'prior': prior_params}
 
     return z, model, params
-
-
 
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -321,3 +277,58 @@ def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7
     featval = feat_val.T
 
     return featval, feateval_ica, accuracy
+
+
+def IVAE_wrapper_old(X, U, batch_size=256, max_iter=7e4, seed=0, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
+                     activation='lrelu', anneal=False, slope=.1):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    device = torch.device('cuda' if cuda else 'cpu')
+    print('training on {}'.format(torch.cuda.get_device_name(device) if cuda else 'cpu'))
+
+    # load data
+    print('Creating shuffled dataset..')
+    dset = CustomSyntheticDataset(X, U, None, 'cpu')
+    loader_params = {'num_workers': 1, 'pin_memory': True} if cuda else {}
+    train_loader = DataLoader(dset, shuffle=True, batch_size=batch_size, **loader_params)
+    data_dim, latent_dim, aux_dim = dset.get_dims()
+    N = len(dset)
+    max_epochs = int(max_iter // len(train_loader) + 1)
+
+    # define model and optimizer
+    print('Defining model and optimizer..')
+    model = iVAE(latent_dim, data_dim, aux_dim, activation=activation, device=device,
+                 n_layers=n_layers, hidden_dim=hidden_dim, anneal=anneal, slope=slope)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True)
+
+    # training loop
+    print("Training..")
+    it = 0
+    model.train()
+    while it < max_iter:
+        elbo_train = 0
+        epoch = it // len(train_loader) + 1
+        for _, (x, u, _) in enumerate(train_loader):
+            it += 1
+            optimizer.zero_grad()
+
+            x, u = x.to(device), u.to(device)
+
+            elbo, z_est = model.elbo(x, u)
+            elbo.mul(-1).backward()
+            optimizer.step()
+
+            elbo_train += -elbo.item()
+
+        elbo_train /= len(train_loader)
+
+        scheduler.step(elbo_train)
+        print('epoch {}/{} \tloss: {}'.format(epoch, max_epochs, elbo_train))
+
+    Xt, Ut = dset.x, dset.u
+    decoder_params, encoder_params, z, prior_params = model(Xt, Ut)
+    params = {'decoder': decoder_params, 'encoder': encoder_params, 'prior': prior_params}
+
+    return z, model, params
