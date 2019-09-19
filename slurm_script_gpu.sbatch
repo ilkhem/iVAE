@@ -16,4 +16,4 @@ module add nvidia/9.0
 source ~/.bashrc
 conda activate deep
 
-python main.py $(sed -n ${SLURM_ARRAY_TASK_ID}p args_gpu_seeded.txt)
+python $1 $(sed -n ${SLURM_ARRAY_TASK_ID}p $2.gpu.seeded)
