@@ -61,9 +61,9 @@ if __name__ == '__main__':
         logger.log()
 
     elif method == 'ivae':
-        z_ivae, ivae, params, logger = IVAE_wrapper(X, Uh, lr=lr, n_layers=nlayers, batch_size=batch_size,
+        z_ivae, ivae, params, logger = IVAE_wrapper(X, Uh, S, lr=lr, n_layers=nlayers, batch_size=batch_size,
                                                     cuda=cuda, max_iter=steps, seed=seed, hidden_dim=hidden_dim,
-                                                    log_folder=LOG_FOLDER, ckpt_folder=TORCH_CHECKPOINT_FOLDER)
+                                                    log_folder=LOG_FOLDER, ckpt_folder=TORCH_CHECKPOINT_FOLDER, scheduler_tol=6)
         perf = mcc(z_ivae.detach().cpu().numpy(), S)
         print('perf:', perf)
 

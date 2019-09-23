@@ -14,7 +14,7 @@ from .utils import Logger, checkpoint
 
 def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
                  activation='lrelu', anneal=False, slope=.1, discrete=False,
-                 log_folder='log/', ckpt_folder=None):
+                 log_folder='log/', ckpt_folder=None, scheduler_tol=4):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -41,7 +41,7 @@ def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers
                              n_layers=n_layers, hidden_dim=hidden_dim, device=device, slope=slope)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=scheduler_tol, verbose=True)
 
     logger = Logger(logdir=log_folder)
     exp_id = logger.get_id()
