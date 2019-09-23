@@ -41,8 +41,6 @@ if __name__ == '__main__':
     hidden_dim = FLAGS.hdim
     cuda = FLAGS.cuda
 
-    print(vars(FLAGS))
-
     S, X, U, _, _ = generate_data(nps, ns, dim, n_layers=mlayers, seed=data_seed, slope=.2, staircase=True,
                                   dtype=np.float32, one_hot_labels=False)
     Uh = to_one_hot([U])[0]
@@ -57,12 +55,9 @@ if __name__ == '__main__':
         print('perf:', perf)
         logger = Logger(logdir=LOG_FOLDER)
         logger.add('elbo')
+        logger.update('elbo', acc)
         logger.add('perf')
         logger.log()
-        logger.add_metadata(full_perf=perf)
-        logger.add_metadata(method=method, cuda=cuda, max_steps=steps, seed=seed, batch_size=batch_size)
-        logger.add_metadata(data_seed=data_seed, nps=nps, ns=ns, d=dim, mixing_layers=mlayers)
-        logger.save_to_json()
 
 
     elif method == 'ivae':
