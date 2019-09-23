@@ -51,7 +51,7 @@ if __name__ == '__main__':
 
     if method == 'tcl':
         z_tcl, z_tcl_ica, acc = TCL_wrapper(X.T, U, [2 * dim, 2 * dim, dim], random_seed=seed, max_steps=steps,
-                                            max_steps_init=steps, cuda=cuda)
+                                            max_steps_init=steps, cuda=cuda, batch_size=batch_size)
         print('acc:', acc)
         perf = mcc(z_tcl.T, S ** 2)
         print('perf:', perf)
