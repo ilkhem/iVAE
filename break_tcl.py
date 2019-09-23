@@ -59,6 +59,11 @@ if __name__ == '__main__':
         logger.add('elbo')
         logger.add('perf')
         logger.log()
+        logger.add_metadata(full_perf=perf)
+        logger.add_metadata(method=method, cuda=cuda, max_steps=steps, seed=seed, batch_size=batch_size)
+        logger.add_metadata(data_seed=data_seed, nps=nps, ns=ns, d=dim, mixing_layers=mlayers)
+        logger.save_to_json()
+
 
     elif method == 'ivae':
         z_ivae, ivae, params, logger = IVAE_wrapper(X, Uh, S, lr=lr, n_layers=nlayers, batch_size=batch_size,
