@@ -13,7 +13,7 @@ from .utils import Logger, checkpoint
 
 def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
                  activation='lrelu', slope=.1, discrete=False,
-                 anneal=False, log_folder=None, ckpt_folder=None):
+                 anneal=False, log_folder=None, ckpt_folder=None, scheduler_tol=3):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -40,7 +40,7 @@ def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers
                              n_layers=n_layers, hidden_dim=hidden_dim, device=device, slope=slope)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=2, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=scheduler_tol, verbose=True)
 
     logger = Logger(log_dir=log_folder)
     exp_id = logger.exp_id
@@ -94,7 +94,7 @@ def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers
 
 
 def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                activation='lrelu', slope=.1, discrete=False):
+                activation='lrelu', slope=.1, discrete=False, scheduler_tol=3):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -121,7 +121,7 @@ def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
                             n_layers=n_layers, hidden_dim=hidden_dim, device=device, slope=slope)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=2, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=scheduler_tol, verbose=True)
 
     logger = Logger()
 
@@ -167,7 +167,7 @@ def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
 
 
 def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7e4), max_steps_init=int(7e4),
-                computeApproxJacobian=False, cuda=False):
+                cuda=False, batch_size=512, initial_learning_rate=0.01):
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     import tensorflow as tf
     from .tcl import tcl_core, tcl_eval
@@ -176,18 +176,14 @@ def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7
     from sklearn.decomposition import FastICA
 
     # Training ----------------------------------------------------
-    initial_learning_rate = 0.01  # initial learning rate
     momentum = 0.9  # momentum parameter of SGD
-    # max_steps = int(7e4) # number of iterations (mini-batches)
     decay_steps = int(5e4)  # decay steps (tf.train.exponential_decay)
     decay_factor = 0.1  # decay factor (tf.train.exponential_decay)
-    batch_size = 512  # mini-batch size
     moving_average_decay = 0.9999  # moving average decay of variables to be saved
     checkpoint_steps = 1e5  # interval to save checkpoint
     num_comp = sensor.shape[0]
 
     # for MLR initialization
-    # max_steps_init = int(7e4) # number of iterations (mini-batches) for initializing only MLR
     decay_steps_init = int(5e4)  # decay steps for initializing only MLR
 
     # Other -------------------------------------------------------

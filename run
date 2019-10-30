@@ -4,8 +4,8 @@
 # on right cluster (cpu or gpu)
 
 mkdir -p slurm_log
-mkdir -p log
-mkdir -p ckpt
+# mkdir -p log
+# mkdir -p ckpt
 
 echo "saving old argument file to history"
 cat $2 >> .$2.hist
@@ -13,8 +13,6 @@ cat $2 > .$2.bak
 
 # python -c "from lib.cmd_utils import create_dataset_before; create_dataset_before('$2')"
 
-rm -f $2.gpu
-rm -f $2.cpu
 python -c "from lib.cmd_utils import assign_cluster; assign_cluster('$2')"
 
 echo "generating seeded args"
@@ -32,6 +30,7 @@ then
 fi
 
 # clear
+echo
 cat $2.cpu
 echo
 read -p "Are you sure you want to run these arguments on cpu? (y/Y to proceed) " -n 1 -r
