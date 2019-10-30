@@ -12,3 +12,6 @@ slurm_log/
 *.ipynb
 figs/
 plots/
+run
+reset
+*slurm*

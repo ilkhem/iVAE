@@ -1,6 +1,0 @@
-#!/bin/bash
-rm -r log
-rm -r ckpt
-rm -r runs
-rm -r slurm_log
-echo "cleaned dir from log folders"
