@@ -1,7 +1,7 @@
+import errno
+import fcntl
 import json
 import os
-import fcntl
-import errno
 import time
 
 import numpy as np
@@ -20,38 +20,6 @@ def make_file(file_name):
     if not os.path.exists(file_name):
         open(file_name, 'a').close()
     return file_name
-
-
-def get_exp_id(log_folder):
-    log_folder = make_dir(log_folder)
-    helper_id_file = log_folder + '.expid'
-    if not os.path.exists(helper_id_file):
-        with open(helper_id_file, 'w') as f:
-            f.writelines('0')
-    # helper_id_file = make_file(helper_id_file)
-    with open(helper_id_file, 'r+') as file:
-        st = time.time()
-        while time.time() - st < 30:
-            try:
-                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                # a = input()
-                break
-            except IOError as e:
-                # raise on unrelated IOErrors
-                if e.errno != errno.EAGAIN:
-                    raise
-                else:
-                    print('sleeping')
-                    time.sleep(0.1)
-        else:
-            raise TimeoutError('Timeout on accessing log helper file {}'.format(helper_id_file))
-        prev_id = int(file.readline())
-        curr_id = prev_id + 1
-
-        file.seek(0)
-        file.writelines(str(curr_id))
-        fcntl.flock(file, fcntl.LOCK_UN)
-    return curr_id
 
 
 def from_log(args, argv, logpath):
@@ -137,18 +105,19 @@ class Averager:
 
 
 class Logger:
-    """A logging helper that tracks training loss and metrics."""
-    def __init__(self, logdir='log/', **metadata):
-        self.logdir = make_dir(logdir)
-        exp_id = get_exp_id(logdir)
+    """A logging helper that tracks training loss and metrics, with saving to json and npz support"""
+
+    def __init__(self, log_dir=None, **metadata):
         self.reset()
         self.metadata = metadata
-        self.exp_id = exp_id
         self.log_dict = {}
         self.running_means = {}
-
-    def get_id(self):
-        return self.exp_id
+        if log_dir is not None:
+            self.log_dir = log_dir
+            self.exp_id = self._get_exp_id(log_dir)
+        else:
+            self.log_dir = None
+            self.exp_id = None
 
     def add(self, key):
         self.running_means.update({key: Averager()})
@@ -167,40 +136,49 @@ class Logger:
 
     def log(self):
         for key in self.keys():
-            self.log_dict[key].append(self.running_means[key].avg * 1.) # make sure we save floats
+            self.log_dict[key].append(self.running_means[key].avg * 1.)  # make sure we save floats
         self._reset_means()
 
     def get_last(self, key):
         return self.log_dict[key][-1]
 
-    def save_to_npz(self, path=None):
-        if path is None:
-            data_path = make_dir(self.logdir + 'data/')
-            path = data_path + str(self.exp_id) + '.npz'
-        else:
-            if path[-4:] != '.npz':
-                path += '.npz'
-        for k, v in self.log_dict.items():
-            self.log_dict[k] = np.array(v)
-        np.savez_compressed(path, **self.log_dict)
-        print('Log data saved to {}'.format(path))
+    def save_to_npz(self, log_dir=None):
 
-    def save_to_json(self, path=None, method='last'):
-        if path is None:
-            path = make_file(self.logdir + 'log.json')
-        with open(path, 'a') as file:
-            log = {'id': self.exp_id}
-            for k in self.keys():
-                if method == 'last':
-                    log.update({k: self.get_last(k)})
-                elif method == 'full':
-                    log.update({k: self.log_dict[k]})
-                else:
-                    raise ValueError('Incorrect method {}'.format(method))
-            log.update({'metadata': self.metadata})
-            json.dump(log, file)
-            file.write('\n')
-        print('Log saved to {}'.format(path))
+        if (log_dir is not None) or (log_dir is None and self.log_dir is not None):
+            if log_dir is None:
+                log_dir = self.log_dir
+            exp_id = self._get_exp_id(log_dir)
+            path = log_dir + '{}.npz'.format(exp_id)
+            for k, v in self.log_dict.items():
+                self.log_dict[k] = np.array(v)
+            np.savez_compressed(path, **self.log_dict)
+            print('Log data saved to {}'.format(path))
+
+        else:
+            print("Can't save to npz: log path not specified")
+
+    def save_to_json(self, log_dir=None, method='last'):
+
+        if (log_dir is not None) or (log_dir is None and self.log_dir is not None):
+            if log_dir is None:
+                log_path = self.log_dir
+            exp_id = self._get_exp_id(log_dir)
+            path = make_file(log_dir + 'log.json')
+            with open(path, 'a') as file:
+                log = {'id': exp_id}
+                for k in self.keys():
+                    if method == 'last':
+                        log.update({k: self.get_last(k)})
+                    elif method == 'full':
+                        log.update({k: self.log_dict[k]})
+                    else:
+                        raise ValueError('Incorrect method {}'.format(method))
+                log.update({'metadata': self.metadata})
+                json.dump(log, file)
+                file.write('\n')
+            print('Log saved to {}'.format(path))
+        else:
+            print("Can't save to json: log path not specified")
 
     def add_metadata(self, **metadata):
         self.metadata.update(metadata)
@@ -213,3 +191,35 @@ class Logger:
 
     def keys(self):
         return self.log_dict.keys()
+
+    @staticmethod
+    def _get_exp_id(log_folder):
+        log_folder = make_dir(log_folder)
+        helper_id_file = log_folder + '.expid'
+        if not os.path.exists(helper_id_file):
+            with open(helper_id_file, 'w') as f:
+                f.writelines('0')
+        # helper_id_file = make_file(helper_id_file)
+        with open(helper_id_file, 'r+') as file:
+            st = time.time()
+            while time.time() - st < 30:
+                try:
+                    fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    # a = input()
+                    break
+                except IOError as e:
+                    # raise on unrelated IOErrors
+                    if e.errno != errno.EAGAIN:
+                        raise
+                    else:
+                        print('sleeping')
+                        time.sleep(0.1)
+            else:
+                raise TimeoutError('Timeout on accessing log helper file {}'.format(helper_id_file))
+            prev_id = int(file.readline())
+            curr_id = prev_id + 1
+
+            file.seek(0)
+            file.writelines(str(curr_id))
+            fcntl.flock(file, fcntl.LOCK_UN)
+        return curr_id

@@ -25,6 +25,7 @@ if __name__ == '__main__':
     flags.DEFINE_integer('nlayers', 3, 'number of estimation network layers')
     flags.DEFINE_integer('bsize', 64, 'batch size')
     flags.DEFINE_integer('hdim', 20, 'size of hidden dim')
+    flags.DEFINE_bool('staircase', False, 'staircase data?')
 
     data_seed = FLAGS.dseed
     dim = FLAGS.dim
@@ -40,14 +41,21 @@ if __name__ == '__main__':
     batch_size = FLAGS.bsize
     hidden_dim = FLAGS.hdim
     cuda = FLAGS.cuda
+    staircase = FLAGS.staircase
 
-    print(vars(FLAGS))
+    if staircase:
+        LOG_FOLDER = 'log/btcl/'
+        TORCH_CHECKPOINT_FOLDER = 'ckpt/btcl/'
+    else:
+        LOG_FOLDER = 'log/normal_tcl/'
+        TORCH_CHECKPOINT_FOLDER = 'ckpt/normal_tcl/'
 
-    S, X, U, _, _ = generate_data(nps, ns, dim, n_layers=mlayers, seed=data_seed, slope=.2, staircase=True,
+
+    S, X, U, _, _ = generate_data(nps, ns, dim, n_layers=mlayers, seed=data_seed, slope=.2, staircase=staircase,
                                   dtype=np.float32, one_hot_labels=False)
     Uh = to_one_hot([U])[0]
 
-    print('seed:', seed, '\tsteps:', steps, '\tmethod:', method, '\tdim:', dim)
+    print('seed:', seed, '\tsteps:', steps, '\tmethod:', method, '\tdim:', dim, '\tstaircase', staircase)
 
     if method == 'tcl':
         z_tcl, z_tcl_ica, acc = TCL_wrapper(X.T, U, [2 * dim, 2 * dim, dim], random_seed=seed, max_steps=steps,
@@ -61,7 +69,7 @@ if __name__ == '__main__':
         logger.log()
 
     elif method == 'ivae':
-        z_ivae, ivae, params, logger = IVAE_wrapper(X, Uh, lr=lr, n_layers=nlayers, batch_size=batch_size,
+        z_ivae, ivae, params, logger = IVAE_wrapper(X, Uh, S, lr=lr, n_layers=nlayers, batch_size=batch_size,
                                                     cuda=cuda, max_iter=steps, seed=seed, hidden_dim=hidden_dim,
                                                     log_folder=LOG_FOLDER, ckpt_folder=TORCH_CHECKPOINT_FOLDER)
         perf = mcc(z_ivae.detach().cpu().numpy(), S)

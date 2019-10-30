@@ -359,7 +359,7 @@ class VAE(nn.Module):
         else:
             self.encoder_dist = encoder
         self.prior_dist = Normal(device)
-        self.prior_mean = torch.ones(0).to(device)
+        self.prior_mean = torch.zeros(1).to(device)
         self.prior_var = torch.ones(1).to(device)
 
         self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope, device=device)
