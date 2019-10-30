@@ -8,3 +8,7 @@ runs/
 *.json
 ckpt/
 slurm_log/
+*args*
+*.ipynb
+figs/
+plots/

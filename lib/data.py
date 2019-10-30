@@ -169,8 +169,10 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
         m = np.zeros((n_seg, d))
 
     if staircase:
-        m1 = 2 * np.arange(n_seg).reshape((-1, 1))
-        L[:, 0] = .2
+        m1 = 3 * np.arange(n_seg).reshape((-1, 1))
+        a = np.random.permutation(n_seg)
+        m1 = m1[a]
+        # L[:, 0] = .2
         if uncentered:
             m2 = np.random.uniform(-1, 1, (n_seg, d - 1))
         else:
@@ -199,7 +201,7 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
 def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='gauss', activation='lrelu', batch_size=0,
                   seed=10, slope=.1, var_bounds=np.array([0.5, 3]), lin_type='uniform', n_iter_4_cond=1e4,
                   dtype=np.float32, noisy=0, uncentered=False, centers=None, staircase=False, discrete=False,
-                  one_hot_labels=True):
+                  one_hot_labels=True, repeat_linearity=False):
     """
     Generate artificial data with arbitrary mixing
     @param int n_per_seg: number of observations per segment
@@ -252,14 +254,30 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
         raise ValueError('incorrect non linearity: {}'.format(activation))
 
     # Mixing time!
-    X = S.copy()
-    for nl in range(n_layers):
-        A = generate_mixing_matrix(X.shape[1], d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype,
-                                   staircase=staircase)
-        if nl == n_layers - 1:
-            X = np.dot(X, A)
+
+    if not repeat_linearity:
+        X = S.copy()
+        for nl in range(n_layers):
+            A = generate_mixing_matrix(X.shape[1], d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype,
+                                       staircase=staircase)
+            if nl == n_layers - 1:
+                X = np.dot(X, A)
+            else:
+                X = act_f(np.dot(X, A))
+
+    else:
+        assert n_layers > 1  # suppose we always have at least 2 layers. The last layer doesn't have a non-linearity
+        A = generate_mixing_matrix(d_sources, d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
+        X = act_f(np.dot(S, A))
+        if d_sources != d_data:
+            B = generate_mixing_matrix(d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
         else:
-            X = act_f(np.dot(X, A))
+            B = A
+        for nl in range(1, n_layers):
+            if nl == n_layers - 1:
+                X = np.dot(X, B)
+            else:
+                X = act_f(np.dot(X, B))
 
     # add noise:
     if noisy:
@@ -362,8 +380,7 @@ class CustomSyntheticDataset(Dataset):
         return self.x[index], self.u[index], self.s[index]
 
     def get_metadata(self):
-        return {'path': self.path,
-                'nps': self.nps,
+        return {'nps': self.nps,
                 'ns': self.aux_dim,
                 'n': self.len,
                 'latent_dim': self.latent_dim,
