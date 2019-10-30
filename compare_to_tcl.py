@@ -84,5 +84,5 @@ if __name__ == '__main__':
                         n_layers=nlayers, batch_size=batch_size, hidden_dim=hidden_dim)
     logger.add_metadata(data_seed=data_seed, nps=nps, ns=ns, d=dim, mixing_layers=mlayers)
 
-    logger.save_to_npz()
-    logger.save_to_json()
+    logger.save_to_npz(log_dir=LOG_FOLDER)
+    logger.save_to_json(log_dir=LOG_FOLDER)

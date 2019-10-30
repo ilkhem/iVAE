@@ -12,7 +12,7 @@ from .utils import Logger, checkpoint
 
 
 def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                 activation='lrelu', slope=.1, discrete=False,
+                 activation='lrelu', slope=.1, discrete=False, inference_dim=None,
                  anneal=False, log_folder=None, ckpt_folder=None, scheduler_tol=3):
     if seed is not None:
         torch.manual_seed(seed)
@@ -27,6 +27,8 @@ def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers
     loader_params = {'num_workers': 1, 'pin_memory': True} if cuda else {}
     train_loader = DataLoader(dset, shuffle=True, batch_size=batch_size, **loader_params)
     data_dim, latent_dim, aux_dim = dset.get_dims()
+    if inference_dim is not None:
+        latent_dim = inference_dim
     N = len(dset)
     max_epochs = int(max_iter // len(train_loader) + 1)
 
@@ -94,7 +96,8 @@ def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers
 
 
 def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,
-                activation='lrelu', slope=.1, discrete=False, scheduler_tol=3):
+                activation='lrelu', slope=.1, discrete=False, inference_dim=None,
+                log_folder=None, ckpt_folder=None, scheduler_tol=3):
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -108,7 +111,8 @@ def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
     loader_params = {'num_workers': 1, 'pin_memory': True} if cuda else {}
     train_loader = DataLoader(dset, shuffle=True, batch_size=batch_size, **loader_params)
     data_dim, latent_dim, aux_dim = dset.get_dims()
-    N = len(dset)
+    if inference_dim is not None:
+        latent_dim = inference_dim
     max_epochs = int(max_iter // len(train_loader) + 1)
 
     # define model and optimizer
@@ -123,8 +127,10 @@ def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=scheduler_tol, verbose=True)
 
-    logger = Logger()
-
+    logger = Logger(log_dir=log_folder)
+    exp_id = logger.exp_id
+    if log_folder is None:
+        ckpt_folder = None
     logger.add('elbo')
     logger.add('perf')
 
@@ -149,6 +155,10 @@ def VAE_wrapper(X, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, 
             if S is not None:
                 perf = mcc(z_est.cpu().detach().numpy(), z.cpu().numpy())
                 logger.update('perf', perf)
+
+            if it % int(max_iter / 5) == 0 and ckpt_folder is not None:
+                checkpoint(ckpt_folder, exp_id, it, model, optimizer,
+                           logger.get_last('elbo'), logger.get_last('perf'))
 
         logger.log()
         scheduler.step(logger.get_last('elbo'))
@@ -189,7 +199,6 @@ def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7
     # Other -------------------------------------------------------
     # # Note: save folder must be under ./storage
     train_dir = '../storage/temp5'  # save directory
-    saveparmpath = os.path.join(train_dir, 'parm.pkl')  # file name to save parameters
 
     num_segment = len(np.unique(label))
 
@@ -234,17 +243,13 @@ def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7
           load_file=init_model_path,
           random_seed=random_seed)
 
-    ## now that we have trained everything, we can evaluate results:
-    apply_fastICA = True
-    nonlinearity_to_source = 'abs'
+    # now that we have trained everything, we can evaluate results:
+    apply_fast_ica = True
     eval_dir = '../storage/temp5'
-    parmpath = os.path.join(eval_dir, 'parm.pkl')
     ckpt = tf.train.get_checkpoint_state(eval_dir)
-    modelpath = ckpt.model_checkpoint_path
 
-    with tf.Graph().as_default() as g:
+    with tf.Graph().as_default():
         data_holder = tf.placeholder(tf.float32, shape=[None, sensor.shape[0]], name='data')
-        label_holder = tf.placeholder(tf.int32, shape=[None], name='label')
 
         # Build a Graph that computes the logits predictions from the
         # inference model.
@@ -269,7 +274,7 @@ def TCL_wrapper(sensor, label, list_hidden_nodes, random_seed=0, max_steps=int(7
     accuracy, confmat = tcl_eval.calc_accuracy(pred_val, label)
 
     # Apply fastICA -----------------------------------------------
-    if apply_fastICA:
+    if apply_fast_ica:
         ica = FastICA(random_state=random_seed)
         feat_val_ica = ica.fit_transform(feat_val)
         feateval_ica = feat_val_ica.T  # Estimated feature
