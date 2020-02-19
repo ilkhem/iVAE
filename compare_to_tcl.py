@@ -30,7 +30,7 @@ if __name__ == '__main__':
     flags.DEFINE_integer('mlayers', 1, 'number of mixing layers')
     flags.DEFINE_integer('dseed', 1, 'data_seed ')
     flags.DEFINE_float('lr', 1e-3, 'learning rate')
-    flags.DEFINE_integer('nlayers', 3, 'number of estimation network layers')
+    flags.DEFINE_integer('nlayers', 1, 'number of estimation network layers')
     flags.DEFINE_integer('bsize', 64, 'batch size')
     flags.DEFINE_integer('hdim', 20, 'size of hidden dim')
     flags.DEFINE_bool('staircase', False, 'staircase data?')
@@ -75,7 +75,6 @@ if __name__ == '__main__':
     key = random.PRNGKey(data_seed+7)
     mix_params = init_invertible_mlp_params(key, dim, mlayers)
     x_data = np.array(invertible_mlp_fwd(mix_params, s_data), dtype=np.float32)
-    x_data -= x_data.mean(0, keepdims=True)
 
     # select clusters using KMeans
     if kmeans:
