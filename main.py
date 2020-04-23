@@ -6,6 +6,9 @@ import numpy as np
 import torch
 import yaml
 
+from models.wrappers import clean_vae_runner
+import pickle
+
 
 def parse():
     parser = argparse.ArgumentParser(description='')
@@ -57,6 +60,10 @@ def main():
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+
+    r = clean_vae_runner(args, new_config)
+    fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.nSims) + '.p')
+    pickle.dump(r, open(fname, "wb"))
 
 
 
