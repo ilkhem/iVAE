@@ -12,6 +12,216 @@ def weights_init(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
+def _check_inputs(size, mu, v):
+    """helper function to ensure inputs are compatible"""
+    if size is None and mu is None and v is None:
+        raise ValueError("inputs can't all be None")
+    elif size is not None:
+        if mu is None:
+            mu = torch.Tensor([0])
+        if v is None:
+            v = torch.Tensor([1])
+        if isinstance(v, Number):
+            v = torch.Tensor([v]).type_as(mu)
+        v = v.expand(size)
+        mu = mu.expand(size)
+        return mu, v
+    elif mu is not None and v is not None:
+        if isinstance(v, Number):
+            v = torch.Tensor([v]).type_as(mu)
+        if v.size() != mu.size():
+            v = v.expand(mu.size())
+        return mu, v
+    elif mu is not None:
+        v = torch.Tensor([1]).type_as(mu).expand(mu.size())
+        return mu, v
+    elif v is not None:
+        mu = torch.Tensor([0]).type_as(v).expand(v.size())
+        return mu, v
+    else:
+        raise ValueError('Given invalid inputs: size={}, mu_logsigma={})'.format(size, (mu, v)))
+
+
+def _log_normal(x, mu=None, v=None, broadcast_size=False):
+    """compute the log-pdf of a normal distribution with diagonal covariance"""
+    if not broadcast_size:
+        mu, v = _check_inputs(None, mu, v)
+    else:
+        mu, v = _check_inputs(x.size(), mu, v)
+    assert mu.shape == v.shape
+    return -0.5 * (np.log(2 * np.pi) + v.log() + (x - mu).pow(2).div(v))
+
+
+def _log_laplace(x, mu, b, broadcast_size=False):
+    """compute the log-pdf of a laplace distribution with diagonal covariance"""
+    # b might not have batch_dimension. This case is handled by _check_inputs
+    if broadcast_size:
+        mu, b = _check_inputs(x.size(), mu, b)
+    else:
+        mu, b = _check_inputs(None, mu, b)
+    return -torch.log(2 * b) - (x - mu).abs().div(b)
+
+
+class CleanMLP(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size, n_hidden, activation='lrelu', batch_norm=False,
+                 initialize=False):
+        super().__init__()
+
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_size = hidden_size
+        self.n_hidden = n_hidden
+        self.activation = activation
+        self.batch_norm = batch_norm
+
+        if activation == 'lrelu':
+            act = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'relu':
+            act = nn.ReLU()
+        else:
+            raise ValueError('wrong activation')
+
+        # construct model
+        if n_hidden == 0:
+            modules = [nn.Linear(input_size, output_size)]
+        else:
+            modules = [nn.Linear(input_size, hidden_size), act] + batch_norm * [nn.BatchNorm1d(hidden_size)]
+
+        for i in range(n_hidden - 1):
+            modules += [nn.Linear(hidden_size, hidden_size), act] + batch_norm * [nn.BatchNorm1d(hidden_size)]
+
+        modules += [nn.Linear(hidden_size, output_size)]
+
+        self.net = nn.Sequential(*modules)
+
+        self.initialize = initialize
+        if initialize:
+            self.apply(weights_init)
+
+    def forward(self, x, y=None):
+        return self.net(x)
+
+
+class ClearnIVAE(torch.nn.Module):
+    def __init__(self, data_dim, latent_dim, aux_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
+                 initialize=False):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.aux_dim = aux_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+
+        self.logl = CleanMLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
+                             initialize=initialize)
+        self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
+                          initialize=initialize)
+        self.g = CleanMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
+                          batch_norm=batch_norm, initialize=initialize)
+        self.logv = CleanMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
+                             batch_norm=batch_norm, initialize=initialize)
+
+    @staticmethod
+    def reparameterize(mu, v):
+        eps = torch.randn_like(mu)
+        scaled = eps.mul(v.sqrt())
+        return scaled.add(mu)
+
+    def encoder(self, x, u):
+        xu = torch.cat((x, u), 1)
+        return self.g(xu), self.logv(xu).exp()
+
+    def decoder(self, s):
+        return self.f(s)
+
+    def prior(self, u):
+        return self.logl(u).exp()
+
+    def forward(self, x, u):
+        l = self.prior(u)
+        g, v = self.encoder(x, u)
+        z = self.reparameterize(g, v)
+        f = self.decoder(z)
+        return f, g, v, z, l
+
+    def elbo(self, x, u, N, a=1., b=1., c=1., d=1., detailed=False):
+        f, g, v, z, l = self.forward(x, u)
+        M, d_latent = z.size()
+        decoder_var = .1 * torch.ones(1)
+        logpx = _log_normal(x, f, decoder_var).sum(dim=-1)
+        logqs_cux = _log_normal(z, g, v).sum(dim=-1)
+        logps_cu = _log_normal(z, None, l).sum(dim=-1)
+
+        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
+        logqs_tmp = _log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v)
+        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
+        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
+
+        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps_cu)).mean()
+        if not detailed:
+            return elbo
+        else:
+            return elbo, -logpx.mean(), (logqs_cux - logqs).mean(), (logqs - logqs_i).mean(), (
+                    logqs_i - logps_cu).mean()
+
+
+class cleanVAE(torch.nn.Module):
+
+    def __init__(self, data_dim, latent_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
+                 initialize=False):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+
+        self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
+                          initialize=initialize)
+        self.g = CleanMLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
+                          initialize=initialize)
+        self.logv = CleanMLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
+                             initialize=initialize)
+
+    @staticmethod
+    def reparameterize(mu, v):
+        eps = torch.randn_like(mu)
+        scaled = eps.mul(v.sqrt())
+        return scaled.add(mu)
+
+    def encoder(self, x):
+        return self.g(x), self.logv(x).exp()
+
+    def decoder(self, s):
+        return self.f(s)
+
+    def forward(self, x):
+        g, v = self.encoder(x)
+        s = self.reparameterize(g, v)
+        f = self.decoder(s)
+        return f, g, v, s
+
+    def elbo(self, x, u,  N, a=1., b=1., c=1., d=1., detailed=False):
+        f, g, v, s = self.forward(x)
+        M, d_latent = s.size()
+        decoder_var = .1 * torch.ones(1)
+        logpx = _log_normal(x, f, decoder_var).sum(dim=-1)
+        logqs_cux = _log_normal(s, g, v).sum(dim=-1)
+        logps = _log_normal(s, None, None, broadcast_size=True).sum(dim=-1)
+
+        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
+        logqs_tmp = _log_normal(s.view(M, 1, d_latent), g.view(1, M, d_latent), v)
+        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
+        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
+
+        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps)).mean()
+        if not detailed:
+            return elbo
+        else:
+            return elbo, -logpx.mean(), (logqs_cux - logqs).mean(), (logqs - logqs_i).mean(), (logqs_i - logps).mean()
+
+
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation='none', slope=.1, device='cpu'):
         super().__init__()
