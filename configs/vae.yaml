@@ -6,7 +6,7 @@ data:
   n_obs_per_seg: 1000
   data_seed: 1
   centered: true
-  noisy: 0
+  noisy: false
   staircase: false
 
 
@@ -15,18 +15,16 @@ training:
   n_epochs: 20
   lr: 0.01
   scheduler: true
-  scheduler_tol: 3
-  a: 100
+  a: 1000
   b: 1
-  c: 0
-  d: 10
+  c: 1
+  d: 1
   anneal: true
   anneal_epoch: 12
 
 model:
-  base: 'ivae'
+  base: 'vae'
   batch_norm: false
-  initialize: true
   n_hidden: 3
   hidden_dim: 100
   activation: 'lrelu'
