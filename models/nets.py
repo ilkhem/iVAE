@@ -84,7 +84,7 @@ class CleanIVAE(torch.nn.Module):
         # decoder params
         self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
                           initialize=initialize, device=device)
-        self.decoder_var = .01 * torch.ones(1).to(device)
+        self.decoder_var = .1 * torch.ones(1).to(device)
         # encoder params
         self.g = CleanMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
                           batch_norm=batch_norm, initialize=initialize, device=device)
@@ -148,7 +148,7 @@ class CleanVAE(torch.nn.Module):
         # decoder params
         self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
                           initialize=initialize, device=device)
-        self.decoder_var = .01 * torch.ones(1).to(device)
+        self.decoder_var = .1 * torch.ones(1).to(device)
         # encoder params
         self.g = CleanMLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
                           initialize=initialize, device=device)
@@ -167,7 +167,7 @@ class CleanVAE(torch.nn.Module):
     def decoder(self, s):
         return self.f(s)
 
-    def forward(self, x):
+    def forward(self, x, u=None):
         g, v = self.encoder(x)
         z = self.reparameterize(g, v)
         f = self.decoder(z)

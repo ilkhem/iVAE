@@ -25,6 +25,7 @@ training:
 model:
   base: 'vae'
   batch_norm: false
+  initialize: true
   n_hidden: 3
   hidden_dim: 100
   activation: 'lrelu'

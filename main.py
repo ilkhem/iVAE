@@ -25,7 +25,6 @@ def parse():
                         help='Plot transfer learning experiment for the selected dataset')
 
     args = parser.parse_args()
-    args.dataset = args.dataset.upper()
     return args
 
 

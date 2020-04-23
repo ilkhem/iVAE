@@ -48,7 +48,7 @@ def clean_vae_wrapper(X, U, seed, config):
         if config.model.base == 'ivae' and config.training.anneal and epoch > config.training.anneal_epoch:
             a, b, c, d = 2 * config.training.a, 1, 1, 1
 
-        for _, (x, u, _) in enumerate(train_loader):
+        for _, (x, u, s) in enumerate(train_loader):
             optimizer.zero_grad()
             x, u = x.to(device), u.to(device)
             elbo, z_est = model.elbo(x, u, N, a, b, c, d)
@@ -56,6 +56,7 @@ def clean_vae_wrapper(X, U, seed, config):
             optimizer.step()
             elbo_train += elbo.item()
         elbo_train /= len(train_loader)
+        print(elbo_train, mcc(z_est.cpu().detach(), s))
         loss_hist += [elbo_train]
         if config.training.scheduler:
             scheduler.step(elbo_train)
@@ -69,8 +70,8 @@ def clean_vae_wrapper(X, U, seed, config):
 
 def clean_vae_runner(args, config):
     mcc_hist = []
-    x, u, s = generate_data(config.data.n_obs_per_seg, config.data.n_segments, config.data.latent_dim,
-                            config.data.data_dim, config.data.n_layers, lin_type='orthogonal',
+    s, x, u, _, _ = generate_data(config.data.n_obs_per_seg, config.data.n_segments, config.data.latent_dim,
+                            config.data.data_dim, config.data.n_layers, lin_type='orthogonal', activation=config.data.activation,
                             seed=config.data.data_seed, staircase=config.data.staircase,
                             uncentered=not config.data.centered, noisy=config.data.noisy,
                             one_hot_labels=True)
