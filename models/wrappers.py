@@ -5,10 +5,10 @@ import torch
 from torch import optim
 from torch.utils.data import DataLoader
 
-from .data import CustomSyntheticDataset
-from .metrics import mean_corr_coef as mcc
-from .models import iVAE, DiscreteIVAE, VAE, DiscreteVAE
-from .utils import Logger, checkpoint
+from data.data import CustomSyntheticDataset
+from metrics.mcc import mean_corr_coef as mcc
+from .nets import iVAE, DiscreteIVAE, VAE, DiscreteVAE
+from utils.utils import Logger, checkpoint
 
 
 def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,

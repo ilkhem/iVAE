@@ -1,6 +1,6 @@
 import sys
 
-from lib.data import create_if_not_exist_dataset
+from data.data import create_if_not_exist_dataset
 
 
 def parse_data_args(line):

@@ -137,12 +137,12 @@ results/*
 datasets_test/* 
 *.gz 
 *.p
-log/
+run/log/
 run/
 *.pdf
-plots/
-causality/
+run/plots/
+run/causality/
 *.zip
-ckpt/
+run/ckpt/
 *.ipynb
 *.orig
