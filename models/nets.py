@@ -12,8 +12,6 @@ def weights_init(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
-
-
 def _log_normal(x, mu, v):
     """compute the log-pdf of a normal distribution with diagonal covariance"""
     return -0.5 * (np.log(2 * np.pi) + v.log() + (x - mu).pow(2).div(v))
@@ -67,7 +65,7 @@ class CleanMLP(nn.Module):
         return self.net(x)
 
 
-class ClearnIVAE(torch.nn.Module):
+class CleanIVAE(torch.nn.Module):
     def __init__(self, data_dim, latent_dim, aux_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
                  initialize=False, device='cpu'):
         super().__init__()
@@ -116,7 +114,7 @@ class ClearnIVAE(torch.nn.Module):
         f = self.decoder(z)
         return f, g, v, z, l
 
-    def elbo(self, x, u, N, a=1., b=1., c=1., d=1., detailed=False):
+    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
         f, g, v, z, l = self.forward(x, u)
         M, d_latent = z.size()
         logpx = _log_normal(x, f, self.decoder_var).sum(dim=-1)
@@ -129,14 +127,10 @@ class ClearnIVAE(torch.nn.Module):
         logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
 
         elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps_cu)).mean()
-        if not detailed:
-            return elbo
-        else:
-            return elbo, -logpx.mean(), (logqs_cux - logqs).mean(), (logqs - logqs_i).mean(), (
-                    logqs_i - logps_cu).mean()
+        return elbo, z
 
 
-class cleanVAE(torch.nn.Module):
+class CleanVAE(torch.nn.Module):
 
     def __init__(self, data_dim, latent_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
                  initialize=False, device='cpu'):
@@ -175,12 +169,12 @@ class cleanVAE(torch.nn.Module):
 
     def forward(self, x):
         g, v = self.encoder(x)
-        s = self.reparameterize(g, v)
-        f = self.decoder(s)
-        return f, g, v, s
+        z = self.reparameterize(g, v)
+        f = self.decoder(z)
+        return f, g, v, z, self.prior_var
 
-    def elbo(self, x, u,  N, a=1., b=1., c=1., d=1., detailed=False):
-        f, g, v, z = self.forward(x)
+    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
+        f, g, v, z, _ = self.forward(x)
         M, d_latent = z.size()
         logpx = _log_normal(x, f, self.decoder_var).sum(dim=-1)
         logqs_cux = _log_normal(z, g, v).sum(dim=-1)
@@ -192,10 +186,7 @@ class cleanVAE(torch.nn.Module):
         logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
 
         elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps)).mean()
-        if not detailed:
-            return elbo
-        else:
-            return elbo, -logpx.mean(), (logqs_cux - logqs).mean(), (logqs - logqs_i).mean(), (logqs_i - logps).mean()
+        return elbo, z
 
 
 class MLP(nn.Module):

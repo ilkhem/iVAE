@@ -355,7 +355,7 @@ class SyntheticDataset(Dataset):
 
 
 class CustomSyntheticDataset(Dataset):
-    def __init__(self, X, U, S, device='cpu'):
+    def __init__(self, X, U, S=None, device='cpu'):
         self.device = device
         self.x = torch.from_numpy(X).to(self.device)
         self.u = torch.from_numpy(U).to(self.device)
