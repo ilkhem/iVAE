@@ -22,6 +22,23 @@ def _log_laplace(x, mu, b):
     return -torch.log(2 * b) - (x - mu).abs().div(b)
 
 
+
+class XTanh(nn.Module):
+    __constants__ = ['inplace']
+    def __init__(self, slope=1e-1):
+        super().__init__()
+        self.slope = slope
+
+    def forward(self, input):
+        return torch.tanh(input) + self.slope * input
+
+    def extra_repr(self):
+        return 'slope={}'.format(self.slope)
+
+
+
+
+
 class CleanMLP(nn.Module):
     def __init__(self, input_size, output_size, hidden_size, n_hidden, activation='lrelu', batch_norm=False,
                  initialize=False, device='cpu'):
@@ -38,6 +55,8 @@ class CleanMLP(nn.Module):
             act = nn.LeakyReLU(0.2, inplace=True)
         elif activation == 'relu':
             act = nn.ReLU()
+        elif activation == 'xtanh':
+            act = XTanh(0.1)
         else:
             raise ValueError('wrong activation')
 
