@@ -5,84 +5,10 @@ import torch
 from torch import optim
 from torch.utils.data import DataLoader
 
-from data.data import CustomSyntheticDataset, generate_data
+from data.data import CustomSyntheticDataset
 from metrics.mcc import mean_corr_coef as mcc
 from utils.utils import Logger, checkpoint
-from .nets import iVAE, DiscreteIVAE, VAE, DiscreteVAE, CleanVAE, CleanIVAE
-
-
-def clean_vae_wrapper(X, U, seed, config):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    device = config.device
-    print('training on {}'.format(device))
-
-    # load data
-    dset = CustomSyntheticDataset(X, U)
-    loader_params = {'num_workers': 1, 'pin_memory': True}
-    train_loader = DataLoader(dset, shuffle=True, batch_size=config.training.batch_size, **loader_params)
-
-    N = len(dset)
-
-    if config.model.base == 'ivae':
-        model = CleanIVAE(config.data.data_dim, config.data.latent_dim, config.data.n_segments,
-                          config.model.n_hidden, config.model.activation, config.model.hidden_dim,
-                          config.model.batch_norm, config.model.initialize, config.device)
-    elif config.model.base == 'vae':
-        model = CleanVAE(config.data.data_dim, config.data.latent_dim,
-                         config.model.n_hidden, config.model.activation, config.model.hidden_dim,
-                         config.model.batch_norm, config.model.initialize, config.device)
-    else:
-        raise ValueError('Unknown base model {}'.format(config.model.base))
-
-    optimizer = optim.Adam(model.parameters(), lr=config.training.lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=config.training.scheduler_tol,
-                                                     verbose=True)
-
-    model.train()
-    a, b, c, d = config.training.a, config.training.b, config.training.c, config.training.d
-    loss_hist = []
-    for epoch in range(config.training.n_epochs):
-        elbo_train = 0
-        if config.model.base == 'ivae' and config.training.anneal and epoch > config.training.anneal_epoch:
-            a, b, c, d = 2 * config.training.a, 1, 1, 1
-
-        for _, (x, u, s) in enumerate(train_loader):
-            optimizer.zero_grad()
-            x, u = x.to(device), u.to(device)
-            elbo, z_est = model.elbo(x, u, N, a, b, c, d)
-            elbo.backward()
-            optimizer.step()
-            elbo_train += elbo.item()
-        elbo_train /= len(train_loader)
-        print(elbo_train, mcc(z_est.cpu().detach(), s))
-        loss_hist += [elbo_train]
-        if config.training.scheduler:
-            scheduler.step(elbo_train)
-
-    Xt, Ut = dset.x.to(device), dset.u.to(device)
-    f, g, v, z, l = model(Xt, Ut)
-    params = {'decoder': f, 'encoder': (g, v), 'prior': l}
-
-    return z, model, params
-
-
-def clean_vae_runner(args, config):
-    mcc_hist = []
-    s, x, u, _, _ = generate_data(config.data.n_obs_per_seg, config.data.n_segments, config.data.latent_dim,
-                            config.data.data_dim, config.data.n_layers, lin_type='orthogonal', activation=config.data.activation,
-                            seed=config.data.data_seed, staircase=config.data.staircase,
-                            uncentered=not config.data.centered, noisy=config.data.noisy,
-                            one_hot_labels=True)
-
-    for seed in range(args.n_sims):
-        # ckpt_file = os.path.join(args.checkpoints, 'ivae_{}_l{}_n{}_s{}.pt'.format(dataset, l, n, seed))
-        res = clean_vae_wrapper(x, u, seed, config)
-        print('MCC: {}'.format(mcc(res[0].cpu().detach().numpy(), s)))
-        mcc_hist.append(mcc(res[0].cpu().detach().numpy(), s))
-
-    return mcc_hist
+from .nets import iVAE, DiscreteIVAE, VAE, DiscreteVAE
 
 
 def IVAE_wrapper(X, U, S=None, batch_size=256, max_iter=7e4, seed=None, n_layers=3, hidden_dim=200, lr=1e-2, cuda=True,

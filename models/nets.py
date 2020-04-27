@@ -12,202 +12,6 @@ def weights_init(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
-def _log_normal(x, mu, v):
-    """compute the log-pdf of a normal distribution with diagonal covariance"""
-    return -0.5 * (np.log(2 * np.pi) + v.log() + (x - mu).pow(2).div(v))
-
-
-def _log_laplace(x, mu, b):
-    """compute the log-pdf of a laplace distribution with diagonal covariance"""
-    return -torch.log(2 * b) - (x - mu).abs().div(b)
-
-
-
-class XTanh(nn.Module):
-    __constants__ = ['inplace']
-    def __init__(self, slope=1e-1):
-        super().__init__()
-        self.slope = slope
-
-    def forward(self, input):
-        return torch.tanh(input) + self.slope * input
-
-    def extra_repr(self):
-        return 'slope={}'.format(self.slope)
-
-
-
-
-
-class CleanMLP(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size, n_hidden, activation='lrelu', batch_norm=False,
-                 initialize=False, device='cpu'):
-        super().__init__()
-
-        self.input_size = input_size
-        self.output_size = output_size
-        self.hidden_size = hidden_size
-        self.n_hidden = n_hidden
-        self.activation = activation
-        self.batch_norm = batch_norm
-
-        if activation == 'lrelu':
-            act = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'relu':
-            act = nn.ReLU()
-        elif activation == 'xtanh':
-            act = XTanh(0.1)
-        else:
-            raise ValueError('wrong activation')
-
-        # construct model
-        if n_hidden == 0:
-            modules = [nn.Linear(input_size, output_size)]
-        else:
-            modules = [nn.Linear(input_size, hidden_size), act] + batch_norm * [nn.BatchNorm1d(hidden_size)]
-
-        for i in range(n_hidden - 1):
-            modules += [nn.Linear(hidden_size, hidden_size), act] + batch_norm * [nn.BatchNorm1d(hidden_size)]
-
-        modules += [nn.Linear(hidden_size, output_size)]
-
-        self.net = nn.Sequential(*modules)
-
-        self.initialize = initialize
-        if initialize:
-            self.apply(weights_init)
-
-        self.device = device
-        self.to(device)
-
-    def forward(self, x, y=None):
-        return self.net(x)
-
-
-class CleanIVAE(torch.nn.Module):
-    def __init__(self, data_dim, latent_dim, aux_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
-                 initialize=False, device='cpu'):
-        super().__init__()
-        self.data_dim = data_dim
-        self.latent_dim = latent_dim
-        self.aux_dim = aux_dim
-        self.hidden_dim = hidden_dim
-        self.n_layers = n_layers
-        self.activation = activation
-        self.device = device
-
-        # prior_params
-        self.prior_mean = torch.zeros(1).to(device)
-        self.logl = CleanMLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
-                             initialize=initialize, device=device)
-        # decoder params
-        self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
-                          initialize=initialize, device=device)
-        self.decoder_var = .1 * torch.ones(1).to(device)
-        # encoder params
-        self.g = CleanMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
-                          batch_norm=batch_norm, initialize=initialize, device=device)
-        self.logv = CleanMLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation,
-                             batch_norm=batch_norm, initialize=initialize, device=device)
-
-    @staticmethod
-    def reparameterize(mu, v):
-        eps = torch.randn_like(mu)
-        scaled = eps.mul(v.sqrt())
-        return scaled.add(mu)
-
-    def encoder(self, x, u):
-        xu = torch.cat((x, u), 1)
-        return self.g(xu), self.logv(xu).exp()
-
-    def decoder(self, s):
-        return self.f(s)
-
-    def prior(self, u):
-        return self.logl(u).exp()
-
-    def forward(self, x, u):
-        l = self.prior(u)
-        g, v = self.encoder(x, u)
-        z = self.reparameterize(g, v)
-        f = self.decoder(z)
-        return f, g, v, z, l
-
-    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
-        f, g, v, z, l = self.forward(x, u)
-        M, d_latent = z.size()
-        logpx = _log_normal(x, f, self.decoder_var).sum(dim=-1)
-        logqs_cux = _log_normal(z, g, v).sum(dim=-1)
-        logps_cu = _log_normal(z, self.prior_mean, l).sum(dim=-1)
-
-        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
-        logqs_tmp = _log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))
-        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
-        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
-
-        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps_cu)).mean()
-        return elbo, z
-
-
-class CleanVAE(torch.nn.Module):
-
-    def __init__(self, data_dim, latent_dim, n_layers=3, activation='lrelu', hidden_dim=50, batch_norm=False,
-                 initialize=False, device='cpu'):
-        super().__init__()
-        self.data_dim = data_dim
-        self.latent_dim = latent_dim
-        self.hidden_dim = hidden_dim
-        self.n_layers = n_layers
-        self.activation = activation
-        self.device = device
-
-        # prior_params
-        self.prior_mean = torch.zeros(1).to(device)
-        self.prior_var = torch.ones(1).to(device)
-        # decoder params
-        self.f = CleanMLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
-                          initialize=initialize, device=device)
-        self.decoder_var = .1 * torch.ones(1).to(device)
-        # encoder params
-        self.g = CleanMLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
-                          initialize=initialize, device=device)
-        self.logv = CleanMLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, batch_norm=batch_norm,
-                             initialize=initialize, device=device)
-
-    @staticmethod
-    def reparameterize(mu, v):
-        eps = torch.randn_like(mu)
-        scaled = eps.mul(v.sqrt())
-        return scaled.add(mu)
-
-    def encoder(self, x):
-        return self.g(x), self.logv(x).exp()
-
-    def decoder(self, s):
-        return self.f(s)
-
-    def forward(self, x, u=None):
-        g, v = self.encoder(x)
-        z = self.reparameterize(g, v)
-        f = self.decoder(z)
-        return f, g, v, z, self.prior_var
-
-    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
-        f, g, v, z, _ = self.forward(x)
-        M, d_latent = z.size()
-        logpx = _log_normal(x, f, self.decoder_var).sum(dim=-1)
-        logqs_cux = _log_normal(z, g, v).sum(dim=-1)
-        logps = _log_normal(z, self.prior_mean, self.prior_var).sum(dim=-1)
-
-        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
-        logqs_tmp = _log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))
-        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
-        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
-
-        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps)).mean()
-        return elbo, z
-
-
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation='none', slope=.1, device='cpu'):
         super().__init__()
@@ -265,6 +69,110 @@ class MLP(nn.Module):
             else:
                 h = self._act_f[c](self.fc[c](h))
         return h
+
+
+class cleanIVAE(nn.Module):
+    def __init__(self, data_dim, latent_dim, aux_dim, n_layers=3, activation='xtanh', hidden_dim=50, slope=.1):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.aux_dim = aux_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+
+        self.logl = MLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.g = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.logv = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+
+    @staticmethod
+    def reparameterize(mu, v):
+        eps = torch.randn_like(mu)
+        scaled = eps.mul(v.sqrt())
+        return scaled.add(mu)
+
+    def encoder(self, x, u):
+        xu = torch.cat((x, u), 1)
+        g = self.g(xu)
+        logv = self.logv(xu)
+        return g, logv.exp()
+
+    def decoder(self, s):
+        f = self.f(s)
+        return f
+
+    def prior(self, u):
+        logl = self.logl(u)
+        return logl.exp()
+
+    def forward(self, x, u):
+        l = self.prior(u)
+        g, v = self.encoder(x, u)
+        s = self.reparameterize(g, v)
+        f = self.decoder(s)
+        return f, g, v, s, l
+
+
+class cleanVAE(nn.Module):
+
+    def __init__(self, data_dim, latent_dim, n_layers=3, activation='xtanh', hidden_dim=50, slope=.1):
+        super().__init__()
+        self.data_dim = data_dim
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+        self.activation = activation
+        self.slope = slope
+
+        self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.g = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.logv = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+
+    @staticmethod
+    def reparameterize(mu, v):
+        eps = torch.randn_like(mu)
+        scaled = eps.mul(v.sqrt())
+        return scaled.add(mu)
+
+    def encoder(self, x):
+        g = self.g(x)
+        logv = self.logv(x)
+        return g, logv.exp()
+
+    def decoder(self, s):
+        f = self.f(s)
+        return f
+
+    def forward(self, x):
+        g, v = self.encoder(x)
+        s = self.reparameterize(g, v)
+        f = self.decoder(s)
+        return f, g, v, s
+
+
+class Discriminator(nn.Module):
+    def __init__(self, z_dim=5, hdim=1000):
+        super(Discriminator, self).__init__()
+        self.z_dim = z_dim
+        self.net = nn.Sequential(
+            nn.Linear(z_dim, hdim),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(hdim, hdim),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(hdim, hdim),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(hdim, hdim),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(hdim, hdim),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(hdim, 2),
+        )
+        self.hdim = hdim
+
+    def forward(self, z):
+        return self.net(z).squeeze()
 
 
 class Dist:

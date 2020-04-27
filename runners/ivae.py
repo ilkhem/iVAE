@@ -5,9 +5,9 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import DataLoader
 
-from data.datasets import SyntheticDataset
+from data.data import SyntheticDataset
 from losses.losses import elbo_decomposed, elbo_decomposed_vae, get_performance, permute_dims
-from models.models import cleanVAEICA, cleanVAE, Discriminator
+from models.nets import cleanIVAE, cleanVAE, Discriminator
 
 
 def runner(args, config):
@@ -26,8 +26,8 @@ def runner(args, config):
     data_loader = DataLoader(dset, batch_size=config.batch_size, shuffle=True, drop_last=True, **loader_params)
 
     if config.ica:
-        model = cleanVAEICA(data_dim=d_data, latent_dim=d_latent, aux_dim=d_aux, hidden_dim=config.hidden_dim,
-                            n_layers=config.n_layers, activation=config.activation, slope=.1).to(config.device)
+        model = cleanIVAE(data_dim=d_data, latent_dim=d_latent, aux_dim=d_aux, hidden_dim=config.hidden_dim,
+                          n_layers=config.n_layers, activation=config.activation, slope=.1).to(config.device)
     else:
         model = cleanVAE(data_dim=d_data, latent_dim=d_latent, hidden_dim=config.hidden_dim,
                          n_layers=config.n_layers, activation=config.activation, slope=.1).to(config.device)

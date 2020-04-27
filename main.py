@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import yaml
 
-from runners.ivae import runner as ivae_runner
+from runners.ivae import runner as synthetic_runner
 
 
 def parse():
@@ -62,7 +62,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    r = ivae_runner(args, new_config)
+    r = synthetic_runner(args, new_config)
     # r = clean_vae_runner(args, new_config)
     fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.n_sims) + '.p')
     pickle.dump(r, open(fname, "wb"))

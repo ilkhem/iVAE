@@ -1,5 +1,5 @@
 """
-Script for generating piecew-wise stationary data.
+Script for generating piece-wise stationary data.
 
 Each component of the independent latents is comprised of `ns` segments, and each segment has different parameters.\
 Each segment has `nps` data points 9measurements).
@@ -8,7 +8,6 @@ The latent components are then mixed by an MLP into observations (not necessaril
 It is possible to add noise to the observations
 """
 
-import math
 import os
 
 import numpy as np
@@ -317,22 +316,26 @@ def save_data(path, *args, **kwargs):
 
 
 class SyntheticDataset(Dataset):
-    def __init__(self, path, device='cpu'):
-        self.device = device
-        self.path = path
-        data = np.load(path)
+    def __init__(self, root, nps, ns, dl, dd, nl, s, p, a, uncentered=False, noisy=False, centers=None, double=False):
+        self.root = root
+        data = self.load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers)
         self.data = data
-        self.s = torch.from_numpy(data['s']).to(self.device)
-        self.x = torch.from_numpy(data['x']).to(self.device)
-        self.u = torch.from_numpy(data['u']).to(self.device)
-        self.L = data['L']
-        self.M = data['m']
+        self.s = torch.from_numpy(data['s'])
+        self.x = torch.from_numpy(data['x'])
+        self.u = torch.from_numpy(data['u'])
+        self.l = data['L']
+        self.m = data['m']
         self.len = self.x.shape[0]
         self.latent_dim = self.s.shape[1]
         self.aux_dim = self.u.shape[1]
         self.data_dim = self.x.shape[1]
-        self.nps = int(self.len / self.aux_dim)
-        print('data loaded on {}'.format(self.x.device))
+        self.prior = p
+        self.activation = a
+        self.seed = s
+        self.n_layers = nl
+        self.uncentered = uncentered
+        self.noisy = noisy
+        self.double = double
 
     def get_dims(self):
         return self.data_dim, self.latent_dim, self.aux_dim
@@ -341,17 +344,36 @@ class SyntheticDataset(Dataset):
         return self.len
 
     def __getitem__(self, index):
-        return self.x[index], self.u[index], self.s[index]
+        if not self.double:
+            return self.x[index], self.u[index], self.s[index]
+        else:
+            indices = range(len(self))
+            index2 = np.random.choice(indices)
+            return self.x[index], self.x[index2], self.u[index], self.s[index]
 
-    def get_metadata(self):
-        return {'path': self.path,
-                'nps': self.nps,
-                'ns': self.aux_dim,
-                'n': self.len,
-                'latent_dim': self.latent_dim,
-                'data_dim': self.data_dim,
-                'aux_dim': self.aux_dim,
-                }
+    @staticmethod
+    def load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers):
+        path_to_dataset = root + 'tcl_' + '_'.join(
+            [str(nps), str(ns), str(dl), str(dd), str(nl), str(s), p, a])
+        if uncentered:
+            path_to_dataset += '_u'
+        if noisy:
+            path_to_dataset += '_noisy'
+        path_to_dataset += '.npz'
+
+        if not os.path.exists(path_to_dataset) or s is None:
+            kwargs = {"n_per_seg": nps, "n_seg": ns, "d_sources": dl, "d_data": dd, "n_layers": nl, "prior": p,
+                      "activation": a, "seed": s, "batch_size": 0, "uncentered": uncentered, "noisy": noisy,
+                      "centers": centers, "repeat_linearity": True}
+            save_data(path_to_dataset, **kwargs)
+        print('loading data from {}'.format(path_to_dataset))
+        return np.load(path_to_dataset)
+
+    def get_test_sample(self, batch_size, seed=None):
+        if seed is not None:
+            np.random.seed(seed)
+        idx = np.random.randint(max(0, self.len - batch_size))
+        return self.x[idx:idx + batch_size], self.u[idx:idx + batch_size], self.s[idx:idx + batch_size]
 
 
 class CustomSyntheticDataset(Dataset):
@@ -383,55 +405,6 @@ class CustomSyntheticDataset(Dataset):
         return {'nps': self.nps,
                 'ns': self.aux_dim,
                 'n': self.len,
-                'latent_dim': self.latent_dim,
-                'data_dim': self.data_dim,
-                'aux_dim': self.aux_dim,
-                }
-
-
-class DataLoaderGPU:
-    """
-    A custom data loader on GPU.
-    """
-
-    def __init__(self, path, batch_size, shuffle=True):
-        self.device = torch.device('cuda')
-        self.path = path
-        data = np.load(path)
-        self.data = data
-        print('data loaded on {}'.format(self.device))
-        self.s = torch.from_numpy(data['s']).to(self.device)
-        self.x = torch.from_numpy(data['x']).to(self.device)
-        self.u = torch.from_numpy(data['u']).to(self.device)
-        self.dataset_len = self.x.shape[0]
-        self.latent_dim = self.s.shape[1]
-        self.aux_dim = self.u.shape[1]
-        self.data_dim = self.x.shape[1]
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.len = math.ceil(self.dataset_len / self.batch_size)
-        self.nps = int(self.dataset_len / self.aux_dim)
-        if self.shuffle:
-            self.idx = np.random.permutation(self.dataset_len)
-        else:
-            self.idx = np.arange(self.dataset_len)
-
-    def get_dims(self):
-        return self.data_dim, self.latent_dim, self.aux_dim
-
-    def __len__(self):
-        return self.len
-
-    def __iter__(self):
-        for b in range(self.len):
-            idx = self.idx[self.batch_size * b:self.batch_size * (b + 1)]
-            yield self.x[idx], self.u[idx], self.s[idx]
-
-    def get_metadata(self):
-        return {'path': self.path,
-                'nps': self.nps,
-                'ns': self.aux_dim,
-                'n': self.dataset_len,
                 'latent_dim': self.latent_dim,
                 'data_dim': self.data_dim,
                 'aux_dim': self.aux_dim,
@@ -480,49 +453,3 @@ def create_if_not_exist_dataset(root='data/', nps=1000, ns=40, dl=2, dd=4, nl=3,
                   "activation": a, "seed": s, "batch_size": 0, "uncentered": uncentered, "noisy": noisy}
         save_data(path_to_dataset, **kwargs)
     return path_to_dataset
-
-
-if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser(description='generate artificial data')
-    parser.add_argument('nps', type=int, nargs='?', default=2000,
-                        help='number of data points per segment')
-    parser.add_argument('ns', type=int, nargs='?', default=40, help='number of segments')
-    parser.add_argument('dl', type=int, nargs='?', default=2,
-                        help='dimension of the latent sources')
-    parser.add_argument('dd', type=int, nargs='?', default=None,
-                        help='dimension of the data')
-    parser.add_argument('-l', '--n-layers', type=int, default=3, dest='nl',
-                        help='number of layers in generating MLP - default: 3    ')
-    parser.add_argument('-s', '--seed', type=int, default=1, dest='s',
-                        help='random seed of generating MLP - default: 1')
-    parser.add_argument('-p', '--prior', default='gauss', dest='p',
-                        help='data distribution of each independent source - default: `gauss`')
-    parser.add_argument('-a', '--activation', default='xtanh', dest='a',
-                        help='activation function of the generating MLP - default: `xtanh`')
-    parser.add_argument('-u', '--uncentered', action='store_true', default=False,
-                        help='Generate uncentered data - default False')
-    parser.add_argument('-n', '--noisy', action='store_true', default=False,
-                        help='Generate noisy data - default False')
-    args = parser.parse_args()
-    if args.dd is None:
-        args.dd = 4 * args.dl
-
-    root = 'data/'
-    if not os.path.exists(root):
-        os.mkdir(root)
-    path_to_dataset = root + 'tcl_' + '_'.join(
-        [str(args.nps), str(args.ns), str(args.dl), str(args.dd), str(args.nl), str(args.s), args.p, args.a])
-    if args.uncentered:
-        path_to_dataset += '_u'
-    if args.noisy:
-        path_to_dataset += '_noisy'
-    path_to_dataset += '.npz'
-
-    if not os.path.exists(path_to_dataset) or args.s is None:
-        kwargs = {"n_per_seg": args.nps, "n_seg": args.ns, "d_sources": args.dl, "d_data": args.dd, "n_layers": args.nl,
-                  "prior": args.p,
-                  "activation": args.a, "seed": args.s, "batch_size": 0, "uncentered": args.uncentered,
-                  "noisy": args.noisy}
-        save_data(path_to_dataset, **kwargs)
