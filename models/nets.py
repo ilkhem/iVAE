@@ -155,10 +155,12 @@ class cleanIVAE(nn.Module):
         return g, logv.exp()
 
     def decoder(self, s):
-        return self.f(s)
+        f = self.f(s)
+        return f
 
     def prior(self, u):
-        return self.logl(u)
+        logl = self.logl(u)
+        return logl.exp()
 
     def forward(self, x, u):
         l = self.prior(u)
