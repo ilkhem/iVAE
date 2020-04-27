@@ -232,7 +232,7 @@ class cleanVAE(nn.Module):
         M, d_latent = z.size()
         logpx = log_normal(x, f, self.decoder_var.to(x.device)).sum(dim=-1)
         logqs_cux = log_normal(z, g, v).sum(dim=-1)
-        logps = log_normal(z, None, None).sum(dim=-1)
+        logps = log_normal(z, None, None, broadcast_size=True).sum(dim=-1)
 
         # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
         logqs_tmp = log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))
