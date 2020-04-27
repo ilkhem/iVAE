@@ -64,7 +64,7 @@ def main():
 
     r = ivae_runner(args, new_config)
     # r = clean_vae_runner(args, new_config)
-    fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.nSims) + '.p')
+    fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.n_sims) + '.p')
     pickle.dump(r, open(fname, "wb"))
 
 

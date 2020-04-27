@@ -57,8 +57,9 @@ class SyntheticDataset(Dataset):
         if not os.path.exists(path_to_dataset) or s is None:
             kwargs = {"n_per_seg": nps, "n_seg": ns, "d_sources": dl, "d_data": dd, "n_layers": nl, "prior": p,
                       "activation": a, "seed": s, "batch_size": 0, "uncentered": uncentered, "noisy": noisy,
-                      "centers": centers}
+                      "centers": centers, "repeat_linearity": True}
             save_data(path_to_dataset, **kwargs)
+        print('loading data from {}'.format(path_to_dataset))
         return np.load(path_to_dataset)
 
     def get_test_sample(self, batch_size, seed=None):
