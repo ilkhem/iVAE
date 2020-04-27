@@ -1,31 +1,34 @@
-data:
-  data_dim: 5
-  latent_dim: 5
-  n_segments: 40
-  n_layers: 3
-  n_obs_per_seg: 1000
-  data_seed: 1
-  centered: true
-  noisy: false
-  staircase: false
+# dataset
+nps: 1000
+ns: 40
+dl: 5
+dd: 5
+nl: 3
+s: 1
+p: 'gauss'
+act: 'xtanh'
+uncentered: false
+noisy: false
+staircase: false
 
+# model args
+n_layers: 3
+hidden_dim: 100
+activation: 'xtanh'
+ica: false
+initialize: true
+batch_norm: false
 
-training:
-  batch_size: 64
-  n_epochs: 20
-  lr: 0.01
-  scheduler: true
-  a: 500
-  b: 5
-  c: 5
-  d: 5
-  anneal: true
-  anneal_epoch: 12
-
-model:
-  base: 'vae'
-  batch_norm: false
-  initialize: true
-  n_hidden: 3
-  hidden_dim: 100
-  activation: 'lrelu'
+# learning
+a: 500
+b: 5
+c: 5
+d: 5
+gamma: 0
+lr: 0.01
+batch_size: 64
+epochs: 20
+no_scheduler: false
+scheduler_tol: 3
+anneal: false
+anneal_epoch: 20
