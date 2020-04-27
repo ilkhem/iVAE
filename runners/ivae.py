@@ -69,16 +69,17 @@ def runner(args, config):
                 x, x2, u, s_true = data
             x, u = x.to(config.device), u.to(config.device)
             optimizer.zero_grad()
-            if config.ica:
-                f, g, v, s, l = model(x, u)
-                loss, t1, t2, t3, t4 = elbo_decomposed(x, f, g, v, s, l, len(dset), a=a, b=b, c=c, d=d, detailed=True)
-            else:
-                f, g, v, s = model(x)
-                loss, t1, t2, t3, t4 = elbo_decomposed_vae(x, f, g, v, s, len(dset), a=a, b=b, c=c, d=d, detailed=True)
-                if factor:
-                    D_z = D(s)
-                    vae_tc_loss = (D_z[:, :1] - D_z[:, 1:]).mean()
-                    loss += config.gamma * vae_tc_loss
+            # if config.ica:
+            #     f, g, v, s, l = model(x, u)
+            #     loss, t1, t2, t3, t4 = elbo_decomposed(x, f, g, v, s, l, len(dset), a=a, b=b, c=c, d=d, detailed=True)
+            # else:
+            #     f, g, v, s = model(x)
+            #     loss, t1, t2, t3, t4 = elbo_decomposed_vae(x, f, g, v, s, len(dset), a=a, b=b, c=c, d=d, detailed=True)
+            loss, z = model.elbo(x, u, len(dset), a=a, b=b, c=c, d=d)
+            if factor:
+                D_z = D(z)
+                vae_tc_loss = (D_z[:, :1] - D_z[:, 1:]).mean()
+                loss += config.gamma * vae_tc_loss
 
             loss.backward(retain_graph=factor)
 
