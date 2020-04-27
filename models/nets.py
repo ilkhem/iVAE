@@ -12,6 +12,56 @@ def weights_init(m):
         nn.init.xavier_uniform_(m.weight.data)
 
 
+def _check_inputs(size, mu, v):
+    """helper function to ensure inputs are compatible"""
+    if size is None and mu is None and v is None:
+        raise ValueError("inputs can't all be None")
+    elif size is not None:
+        if mu is None:
+            mu = torch.Tensor([0])
+        if v is None:
+            v = torch.Tensor([1])
+        if isinstance(v, Number):
+            v = torch.Tensor([v]).type_as(mu)
+        v = v.expand(size)
+        mu = mu.expand(size)
+        return mu, v
+    elif mu is not None and v is not None:
+        if isinstance(v, Number):
+            v = torch.Tensor([v]).type_as(mu)
+        if v.size() != mu.size():
+            v = v.expand(mu.size())
+        return mu, v
+    elif mu is not None:
+        v = torch.Tensor([1]).type_as(mu).expand(mu.size())
+        return mu, v
+    elif v is not None:
+        mu = torch.Tensor([0]).type_as(v).expand(v.size())
+        return mu, v
+    else:
+        raise ValueError('Given invalid inputs: size={}, mu_logsigma={})'.format(size, (mu, v)))
+
+
+def log_normal(x, mu=None, v=None, broadcast_size=False):
+    """compute the log-pdf of a normal distribution with diagonal covariance"""
+    if not broadcast_size:
+        mu, v = _check_inputs(None, mu, v)
+    else:
+        mu, v = _check_inputs(x.size(), mu, v)
+    assert mu.shape == v.shape
+    return -0.5 * (np.log(2 * np.pi) + v.log() + (x - mu).pow(2).div(v))
+
+
+def log_laplace(x, mu, b, broadcast_size=False):
+    """compute the log-pdf of a laplace distribution with diagonal covariance"""
+    # b might not have batch_dimension. This case is handled by _check_inputs
+    if broadcast_size:
+        mu, b = _check_inputs(x.size(), mu, b)
+    else:
+        mu, b = _check_inputs(None, mu, b)
+    return -torch.log(2 * b) - (x - mu).abs().div(b)
+
+
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation='none', slope=.1, device='cpu'):
         super().__init__()
@@ -82,8 +132,13 @@ class cleanIVAE(nn.Module):
         self.activation = activation
         self.slope = slope
 
+        # prior params
+        self.prior_mean = torch.zeros(1)
         self.logl = MLP(aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        # decoder params
         self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.decoder_var = .1 * torch.ones(1)
+        # encoder params
         self.g = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
         self.logv = MLP(data_dim + aux_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
 
@@ -100,12 +155,10 @@ class cleanIVAE(nn.Module):
         return g, logv.exp()
 
     def decoder(self, s):
-        f = self.f(s)
-        return f
+        return self.f(s)
 
     def prior(self, u):
-        logl = self.logl(u)
-        return logl.exp()
+        return self.logl(u)
 
     def forward(self, x, u):
         l = self.prior(u)
@@ -113,6 +166,21 @@ class cleanIVAE(nn.Module):
         s = self.reparameterize(g, v)
         f = self.decoder(s)
         return f, g, v, s, l
+
+    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
+        f, g, v, z, l = self.forward(x, u)
+        M, d_latent = z.size()
+        logpx = log_normal(x, f, self.decoder_var.to(x.device)).sum(dim=-1)
+        logqs_cux = log_normal(z, g, v).sum(dim=-1)
+        logps_cu = log_normal(z, None, l).sum(dim=-1)
+
+        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
+        logqs_tmp = log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))
+        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
+        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
+
+        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps_cu)).mean()
+        return elbo, z
 
 
 class cleanVAE(nn.Module):
@@ -126,7 +194,13 @@ class cleanVAE(nn.Module):
         self.activation = activation
         self.slope = slope
 
+        # prior_params
+        self.prior_mean = torch.zeros(1)
+        self.prior_var = torch.ones(1)
+        # decoder params
         self.f = MLP(latent_dim, data_dim, hidden_dim, n_layers, activation=activation, slope=slope)
+        self.decoder_var = .1 * torch.ones(1)
+        # encoder params
         self.g = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
         self.logv = MLP(data_dim, latent_dim, hidden_dim, n_layers, activation=activation, slope=slope)
 
@@ -150,6 +224,21 @@ class cleanVAE(nn.Module):
         s = self.reparameterize(g, v)
         f = self.decoder(s)
         return f, g, v, s
+
+    def elbo(self, x, u, N, a=1., b=1., c=1., d=1.):
+        f, g, v, z = self.forward(x)
+        M, d_latent = z.size()
+        logpx = log_normal(x, f, self.decoder_var.to(x.device)).sum(dim=-1)
+        logqs_cux = log_normal(z, g, v).sum(dim=-1)
+        logps = log_normal(z, self.prior_mean.to(x.device), self.prior_var.to(x.device)).sum(dim=-1)
+
+        # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
+        logqs_tmp = log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))
+        logqs = torch.logsumexp(logqs_tmp.sum(dim=-1), dim=1, keepdim=False) - np.log(M * N)
+        logqs_i = (torch.logsumexp(logqs_tmp, dim=1, keepdim=False) - np.log(M * N)).sum(dim=-1)
+
+        elbo = -(a * logpx - b * (logqs_cux - logqs) - c * (logqs - logqs_i) - d * (logqs_i - logps)).mean()
+        return elbo, z
 
 
 class Discriminator(nn.Module):
