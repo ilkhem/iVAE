@@ -18,7 +18,7 @@ def parse():
     parser.add_argument('--run', type=str, default='run', help='Path for saving running related data.')
     parser.add_argument('--doc', type=str, default='', help='A string for documentation purpose')
 
-    parser.add_argument('--n-sims', type=int, default=5, help='Number of simulations to run')
+    parser.add_argument('--n-sims', type=int, default=1, help='Number of simulations to run')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
 
     parser.add_argument('--plot', action='store_true',
@@ -57,7 +57,7 @@ def main():
         config = yaml.load(f)
     new_config = dict2namespace(config)
     new_config.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    print(new_config)
+    # print(new_config)
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)

@@ -266,6 +266,19 @@ class Discriminator(nn.Module):
         return self.net(z).squeeze()
 
 
+def permute_dims(z):
+    assert z.dim() == 2
+
+    B, _ = z.size()
+    perm_z = []
+    for z_j in z.split(1, 1):
+        perm = torch.randperm(B).to(z.device)
+        perm_z_j = z_j[perm]
+        perm_z.append(perm_z_j)
+
+    return torch.cat(perm_z, 1)
+
+
 class Dist:
     def __init__(self):
         pass
