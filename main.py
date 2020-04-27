@@ -1,13 +1,14 @@
 import argparse
 import os
+# from models.wrappers import clean_vae_runner
+import pickle
 import sys
 
 import numpy as np
 import torch
 import yaml
 
-from models.wrappers import clean_vae_runner
-import pickle
+from runners.ivae import runner as ivae_runner
 
 
 def parse():
@@ -19,7 +20,6 @@ def parse():
 
     parser.add_argument('--n-sims', type=int, default=5, help='Number of simulations to run')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
-
 
     parser.add_argument('--plot', action='store_true',
                         help='Plot transfer learning experiment for the selected dataset')
@@ -45,6 +45,8 @@ def make_dirs(args):
     os.makedirs(args.log, exist_ok=True)
     args.checkpoints = os.path.join(args.run, 'checkpoints', args.doc)
     os.makedirs(args.checkpoints, exist_ok=True)
+    args.data_path = os.path.join(args.run, 'datasets', args.doc)
+    os.makedirs(args.data_path, exist_ok=True)
 
 
 def main():
@@ -60,12 +62,10 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    r = clean_vae_runner(args, new_config)
+    r = ivae_runner(args, new_config)
+    # r = clean_vae_runner(args, new_config)
     fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.nSims) + '.p')
     pickle.dump(r, open(fname, "wb"))
-
-
-
 
 
 if __name__ == '__main__':
