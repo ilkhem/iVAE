@@ -155,10 +155,12 @@ class cleanIVAE(nn.Module):
         return g, logv.exp()
 
     def decoder(self, s):
-        return self.f(s)
+        f = self.f(s)
+        return f
 
     def prior(self, u):
-        return self.logl(u)
+        logl = self.logl(u)
+        return logl.exp()
 
     def forward(self, x, u):
         l = self.prior(u)
@@ -230,7 +232,7 @@ class cleanVAE(nn.Module):
         M, d_latent = z.size()
         logpx = log_normal(x, f, self.decoder_var.to(x.device)).sum(dim=-1)
         logqs_cux = log_normal(z, g, v).sum(dim=-1)
-        logps = log_normal(z, self.prior_mean.to(x.device), self.prior_var.to(x.device)).sum(dim=-1)
+        logps = log_normal(z, None, None).sum(dim=-1)
 
         # no view for v to account for case where it is a float. It works for general case because mu shape is (1, M, d)
         logqs_tmp = log_normal(z.view(M, 1, d_latent), g.view(1, M, d_latent), v.view(1, M, d_latent))

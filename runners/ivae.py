@@ -85,7 +85,7 @@ def runner(args, config):
 
             train_loss += loss.item()
             try:
-                perf = get_performance(s_true.numpy(), s.cpu().detach().numpy())
+                perf = get_performance(s_true.numpy(), z.cpu().detach().numpy())
             except:
                 perf = 0
             train_perf += perf
