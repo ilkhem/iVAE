@@ -5,9 +5,9 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import DataLoader
 
-from data.data import SyntheticDataset
-from metrics.mcc import mean_corr_coef as mcc
-from models.nets import cleanIVAE, cleanVAE, Discriminator, permute_dims
+from data import SyntheticDataset
+from metrics import mean_corr_coef as mcc
+from models import cleanIVAE, cleanVAE, Discriminator, permute_dims
 
 
 def runner(args, config):

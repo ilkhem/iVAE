@@ -1,6 +1,5 @@
 import argparse
 import os
-# from models.wrappers import clean_vae_runner
 import pickle
 import sys
 
@@ -8,7 +7,7 @@ import numpy as np
 import torch
 import yaml
 
-from runners.ivae import runner as synthetic_runner
+from runners import ivae_runner
 
 
 def parse():
@@ -62,7 +61,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    r = synthetic_runner(args, new_config)
+    r = ivae_runner(args, new_config)
     # r = clean_vae_runner(args, new_config)
     fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.n_sims) + '.p')
     pickle.dump(r, open(fname, "wb"))
