@@ -1,16 +1,14 @@
 """tcl"""
 
-import tensorflow as tf
-
 import os
 import os.path
+
 import numpy as np
+import tensorflow as tf
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string('FILTER_COLLECTION', 'filter',
-                           """filter collection.""")
+FILTER_COLLECTION = 'filter'
 
 
 # =============================================================
@@ -18,11 +16,9 @@ tf.app.flags.DEFINE_string('FILTER_COLLECTION', 'filter',
 def _variable_init(name, shape, wd, initializer=tf.contrib.layers.variance_scaling_initializer(), trainable=True,
                    collections=None):
     """Helper to create an initialized Variable with weight decay.
-
     Args:
         name: name of the variable
         shape: list of ints
-        stddev: standard deviation of a truncated Gaussian
         wd: add L2Loss weight decay multiplied by this float. If None, weight
             decay is not added for this Variable.
     Returns:
@@ -50,14 +46,14 @@ def _variable_init(name, shape, wd, initializer=tf.contrib.layers.variance_scali
 # =============================================================
 def inference(x, list_hidden_nodes, num_class, wd=1e-4, maxout_k=2, MLP_trainable=True, feature_nonlinearity='abs'):
     """Build the model.
-        MLP with maxout activation units
+        MLP4 with maxout activation units
     Args:
         x: data holder.
         list_hidden_nodes: number of nodes for each layer. 1D array [num_layer]
         num_class: number of classes of MLR
         wd: (option) parameter of weight decay (not for bias)
         maxout_k: (option) number of affine feature maps
-        MLP_trainable: (option) If false, fix MLP layers
+        MLP_trainable: (option) If false, fix MLP4 layers
         feature_nonlinearity: (option) Nonlinearity of the last hidden layer (feature value)
     Returns:
         logits: logits tensor:
@@ -95,9 +91,9 @@ def inference(x, list_hidden_nodes, num_class, wd=1e-4, maxout_k=2, MLP_trainabl
 
             # Inner product
             W = _variable_init('W', [in_dim, out_dim], wd, trainable=MLP_trainable,
-                               collections=[FLAGS.FILTER_COLLECTION])
+                               collections=[FILTER_COLLECTION])
             b = _variable_init('b', [out_dim], 0, tf.constant_initializer(0.0), trainable=MLP_trainable,
-                               collections=[FLAGS.FILTER_COLLECTION])
+                               collections=[FILTER_COLLECTION])
             x = tf.nn.xw_plus_b(x, W, b)
 
             # Nonlinearity
@@ -120,8 +116,8 @@ def inference(x, list_hidden_nodes, num_class, wd=1e-4, maxout_k=2, MLP_trainabl
         out_dim = num_class
 
         # Inner product
-        W = _variable_init('W', [in_dim, out_dim], wd, collections=[FLAGS.FILTER_COLLECTION])
-        b = _variable_init('b', [out_dim], 0, tf.constant_initializer(0.0), collections=[FLAGS.FILTER_COLLECTION])
+        W = _variable_init('W', [in_dim, out_dim], wd, collections=[FILTER_COLLECTION])
+        b = _variable_init('b', [out_dim], 0, tf.constant_initializer(0.0), collections=[FILTER_COLLECTION])
         logits = tf.nn.xw_plus_b(x, W, b)
 
     return logits, feats
@@ -161,7 +157,6 @@ def _add_loss_summaries(total_loss):
     """Add summaries for losses in CIFAR-10 model.
         Generates moving average for all losses and associated summaries for
         visualizing the performance of the network.
-
     Args:
         total_loss: total loss from loss().
     Returns:
@@ -292,12 +287,11 @@ def train_cpu(data,
         moving_average_decay: (option) moving average decay of variables to be saved (tf.train.ExponentialMovingAverage)
         summary_steps: (option) interval to save summary
         checkpoint_steps: (option) interval to save checkpoint
-        MLP_trainable: (option) If false, fix MLP layers
+        MLP_trainable: (option) If false, fix MLP4 layers
         save_file: (option) name of model file to save
         load_file: (option) name of model file to load
         random_seed: (option) random seed
     Returns:
-
     """
 
     with tf.Graph().as_default(), tf.device('/cpu:0'):
@@ -315,10 +309,6 @@ def train_cpu(data,
                                                            min_after_dequeue=10 * batch_size, enqueue_many=True)
         data_holder = tf.cast(data_holder, tf.float32)
         label_holder = tf.cast(label_holder, tf.float32)
-
-        # Data holder
-        # data_holder = tf.placeholder(tf.float32, shape=[None, data.shape[0]], name='data')
-        # label_holder = tf.placeholder(tf.int32, shape=[None], name='label')
 
         # Build a Graph that computes the logits predictions from the
         # inference model.
@@ -359,7 +349,7 @@ def train_cpu(data,
             reader = tf.train.NewCheckpointReader(load_file)
             reader_var_to_shape_map = reader.get_variable_to_shape_map()
             #
-            load_vars = tf.get_collection(FLAGS.FILTER_COLLECTION)
+            load_vars = tf.get_collection(FILTER_COLLECTION)
             # list up vars contained in the file
             initialized_vars = []
             for lv in load_vars:
@@ -379,28 +369,11 @@ def train_cpu(data,
         num_steps_in_epoch = int(np.floor(num_data / batch_size))
 
         for step in range(max_steps):
-            # start_time = time.time()
-
-            # x_batch = tf.cast( x_batch, tf.float32)
-            # y_batch = tf.cast( y_batch, tf.float32)
-
-            # Make shuffled batch -----------------------------
-            # if step % num_steps_in_epoch == 0:
-            #    step_in_epoch = 0
-            #    shuffle_idx = np.random.permutation(num_data)
-            # x_batch = data[:, shuffle_idx[batch_size*step_in_epoch:batch_size*(step_in_epoch+1)]].T
-            # y_batch = label[shuffle_idx[batch_size*step_in_epoch:batch_size*(step_in_epoch+1)]]
-            # step_in_epoch = step_in_epoch + 1
-
-            # Run ---------------------------------------------
-            # feed_dict = {data_holder:x_batch, label_holder:y_batch}
             _, loss_value, accuracy_value, lr_value = sess.run([train_op, loss, accuracy, lr])  # , feed_dict=feed_dict)
-            # duration = time.time() - start_time
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
             if step % summary_steps == 0:
-                print(step)
                 summary_str = sess.run(summary_op)  # , feed_dict=feed_dict)
                 summary_writer.add_summary(summary_str, step)
 
@@ -449,12 +422,11 @@ def train_gpu(data,
         moving_average_decay: (option) moving average decay of variables to be saved (tf.train.ExponentialMovingAverage)
         summary_steps: (option) interval to save summary
         checkpoint_steps: (option) interval to save checkpoint
-        MLP_trainable: (option) If false, fix MLP layers
+        MLP_trainable: (option) If false, fix MLP4 layers
         save_file: (option) name of model file to save
         load_file: (option) name of model file to load
         random_seed: (option) random seed
     Returns:
-
     """
 
     with tf.Graph().as_default():  # , tf.device('/gpu:0'):
@@ -472,10 +444,6 @@ def train_gpu(data,
                                                            min_after_dequeue=10 * batch_size, enqueue_many=True)
         data_holder = tf.cast(data_holder, tf.float32)
         label_holder = tf.cast(label_holder, tf.float32)
-
-        # Data holder
-        # data_holder = tf.placeholder(tf.float32, shape=[None, data.shape[0]], name='data')
-        # label_holder = tf.placeholder(tf.int32, shape=[None], name='label')
 
         # Build a Graph that computes the logits predictions from the
         # inference model.
@@ -516,7 +484,7 @@ def train_gpu(data,
             reader = tf.train.NewCheckpointReader(load_file)
             reader_var_to_shape_map = reader.get_variable_to_shape_map()
             #
-            load_vars = tf.get_collection(FLAGS.FILTER_COLLECTION)
+            load_vars = tf.get_collection(FILTER_COLLECTION)
             # list up vars contained in the file
             initialized_vars = []
             for lv in load_vars:
@@ -536,28 +504,12 @@ def train_gpu(data,
         num_steps_in_epoch = int(np.floor(num_data / batch_size))
 
         for step in range(max_steps):
-            # start_time = time.time()
-
-            # x_batch = tf.cast( x_batch, tf.float32)
-            # y_batch = tf.cast( y_batch, tf.float32)
-
-            # Make shuffled batch -----------------------------
-            # if step % num_steps_in_epoch == 0:
-            #    step_in_epoch = 0
-            #    shuffle_idx = np.random.permutation(num_data)
-            # x_batch = data[:, shuffle_idx[batch_size*step_in_epoch:batch_size*(step_in_epoch+1)]].T
-            # y_batch = label[shuffle_idx[batch_size*step_in_epoch:batch_size*(step_in_epoch+1)]]
-            # step_in_epoch = step_in_epoch + 1
-
-            # Run ---------------------------------------------
-            # feed_dict = {data_holder:x_batch, label_holder:y_batch}
             _, loss_value, accuracy_value, lr_value = sess.run([train_op, loss, accuracy, lr])  # , feed_dict=feed_dict)
-            # duration = time.time() - start_time
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
             if step % summary_steps == 0:
-                print(step)
+                # print(step)
                 summary_str = sess.run(summary_op)  # , feed_dict=feed_dict)
                 summary_writer.add_summary(summary_str, step)
 

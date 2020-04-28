@@ -13,7 +13,6 @@ from models import cleanIVAE, cleanVAE, Discriminator, permute_dims
 def runner(args, config):
     st = time.time()
 
-    torch.manual_seed(args.seed)
     print('Executing script on: {}\n'.format(config.device))
 
     factor = config.gamma > 0

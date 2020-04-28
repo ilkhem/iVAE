@@ -1,29 +1,19 @@
-data:
-  data_dim: 5
-  latent_dim: 5
-  n_segments: 40
-  n_layers: 3
-  n_obs_per_seg: 1000
-  data_seed: 1
-  centered: true
-  noisy: false
-  staircase: false
+# dataset
+nps: 1000
+ns: 40
+dl: 5
+dd: 5
+nl: 3
+s: 1
+p: 'gauss'
+act: 'xtanh'
+uncentered: false
+noisy: false
+staircase: false
 
-training:
-  batch_size: 64
-  n_epochs: 20
-  lr: 0.01
-  scheduler: true
-  a: 100
-  b: 1
-  c: 0
-  d: 10
-  anneal: true
-  anneal_epoch: 12
+# model
+tcl: true
 
-model:
-  base: 'tcl'
-  batch_norm: false
-  n_hidden: 3
-  hidden_dim: 100
-  activation: 'lrelu'
+# learning
+steps: 70000
+batch_size: 256

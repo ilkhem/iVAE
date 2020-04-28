@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import yaml
 
-from runners import ivae_runner
+from runners import ivae_runner, tcl_runner
 
 
 def parse():
@@ -20,11 +20,7 @@ def parse():
     parser.add_argument('--n-sims', type=int, default=1, help='Number of simulations to run')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
 
-    parser.add_argument('--plot', action='store_true',
-                        help='Plot transfer learning experiment for the selected dataset')
-
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 def dict2namespace(config):
@@ -61,9 +57,13 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    r = ivae_runner(args, new_config)
+    if new_config.tcl:
+        r = tcl_runner(args, new_config)
+    else:
+        r = ivae_runner(args, new_config)
     # r = clean_vae_runner(args, new_config)
-    fname = os.path.join(args.run, os.path.splitext(args.config)[0] + '_' + str(args.n_sims) + '.p')
+    fname = os.path.join(args.run,
+                         '_'.join([os.path.splitext(args.config)[0], str(args.seed), str(args.n_sims)]) + '.p')
     pickle.dump(r, open(fname, "wb"))
 
 
