@@ -316,9 +316,10 @@ def save_data(path, *args, **kwargs):
 
 
 class SyntheticDataset(Dataset):
-    def __init__(self, root, nps, ns, dl, dd, nl, s, p, a, uncentered=False, noisy=False, centers=None, double=False):
+    def __init__(self, root, nps, ns, dl, dd, nl, s, p, a, uncentered=False, noisy=False, centers=None, double=False,
+                 one_hot_labels=True):
         self.root = root
-        data = self.load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers)
+        data = self.load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers, one_hot_labels)
         self.data = data
         self.s = torch.from_numpy(data['s'])
         self.x = torch.from_numpy(data['x'])
@@ -336,6 +337,7 @@ class SyntheticDataset(Dataset):
         self.uncentered = uncentered
         self.noisy = noisy
         self.double = double
+        self.one_hot_labels = one_hot_labels
 
     def get_dims(self):
         return self.data_dim, self.latent_dim, self.aux_dim
@@ -352,7 +354,7 @@ class SyntheticDataset(Dataset):
             return self.x[index], self.x[index2], self.u[index], self.s[index]
 
     @staticmethod
-    def load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers):
+    def load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers, one_hot_labels):
         path_to_dataset = root + 'tcl_' + '_'.join(
             [str(nps), str(ns), str(dl), str(dd), str(nl), str(s), p, a])
         if uncentered:
@@ -364,7 +366,7 @@ class SyntheticDataset(Dataset):
         if not os.path.exists(path_to_dataset) or s is None:
             kwargs = {"n_per_seg": nps, "n_seg": ns, "d_sources": dl, "d_data": dd, "n_layers": nl, "prior": p,
                       "activation": a, "seed": s, "batch_size": 0, "uncentered": uncentered, "noisy": noisy,
-                      "centers": centers, "repeat_linearity": True}
+                      "centers": centers, "repeat_linearity": True, "one_hot_labels": one_hot_labels}
             save_data(path_to_dataset, **kwargs)
         print('loading data from {}'.format(path_to_dataset))
         return np.load(path_to_dataset)
