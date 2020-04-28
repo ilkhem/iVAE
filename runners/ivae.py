@@ -36,7 +36,7 @@ def runner(args, config):
             model = cleanVAE(data_dim=d_data, latent_dim=d_latent, hidden_dim=config.hidden_dim,
                              n_layers=config.n_layers, activation=config.activation, slope=.1).to(config.device)
         optimizer = optim.Adam(model.parameters(), lr=config.lr)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=2, verbose=True)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=0, verbose=True)
 
         if factor:
             D = Discriminator(d_latent).to(config.device)
