@@ -52,9 +52,9 @@ def from_log(args, argv, logpath):
     return new_d, add_to_log
 
 
-def checkpoint(path, exp_id, iteration, model, optimizer, loss, perf):
+def checkpoint(path, exp_id, seed, iteration, model, optimizer, loss, perf):
     sub_path = make_dir(path + str(exp_id) + '/')
-    weights_path = sub_path + str(exp_id) + '_ckpt_' + str(iteration) + '.pth'
+    weights_path = sub_path + str(exp_id) + '_seed_' + str(seed) + '_ckpt_' + str(iteration) + '.pth'
     print('.. checkpoint at iteration {} ..'.format(iteration))
     torch.save({'iteration': iteration,
                 'model_state_dict': model.state_dict(),

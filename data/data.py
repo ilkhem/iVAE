@@ -2,9 +2,9 @@
 Script for generating piece-wise stationary data.
 
 Each component of the independent latents is comprised of `ns` segments, and each segment has different parameters.\
-Each segment has `nps` data points 9measurements).
+Each segment has `nps` data points (measurements).
 
-The latent components are then mixed by an MLP into observations (not necessarily of the same dimension.
+The latent components are then mixed by an MLP into observations (not necessarily of the same dimension).
 It is possible to add noise to the observations
 """
 
@@ -240,6 +240,12 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
                                                 uncentered=uncentered, centers=centers, staircase=staircase)
     n = n_per_seg * n_seg
 
+    # if U is a vector, transform it in a matrix, so that aux_dim=1
+    try:
+        U.shape[1]
+    except:
+        U = np.expand_dims(U, axis=1)
+    
     # non linearity
     if activation == 'lrelu':
         act_f = lambda x: lrelu(x, slope).astype(dtype)
@@ -317,7 +323,7 @@ def save_data(path, *args, **kwargs):
 
 class SyntheticDataset(Dataset):
     def __init__(self, root, nps, ns, dl, dd, nl, s, p, a, uncentered=False, noisy=False, centers=None, double=False,
-                 one_hot_labels=True):
+                 one_hot_labels=False):
         self.root = root
         data = self.load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers, one_hot_labels)
         self.data = data

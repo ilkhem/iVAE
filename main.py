@@ -9,8 +9,53 @@ import yaml
 
 from runners import ivae_runner, tcl_runner
 
-
 def parse():
+    '''
+    Config arguments:
+    Dataset descriptors
+    nps: (int) number of points per segment (n_per_seg)
+    ns: (int) number of segments (n_seg)
+    dl: (int) dimension of latent sources (d_sources)
+    dd: (int) d_data (dimension of the mixed data)
+    nl: (int) number of layers (for ICA mixing)
+    s: (int) seed for the data generation only
+    -- seed is used to set the model seed.
+    
+    p: (str) probability distribution (e.g. 'gauss' for Normal)
+    act: (str) activation function for the mixing transformation (e.g. 'none')
+    uncentered: (bool) means of the different distributions (True if they have different means)
+    noisy: (bool) whether to add noise to the observations
+    staircase: (bool)
+    
+    # model args
+    n_layers: (int) number of layers in the MLP
+    hidden_dim: (int) number of dimensions in each hidden layer
+    activation: (str) activation function of the MLP (e.g. 'lrelu')
+    ica: (bool) run the iVAE (true) or VAE
+    initialize: (bool) weight initialization
+    batch_norm: (bool) batch normalization
+    tcl: (bool) whether to run TCL (false if you want to run the iVAE)
+    
+    # learning
+    a: (int) weight of the logpx term of the ELBO
+    b: (int) weight of the (logqs_cux - logqs) term of the ELBO
+    c: (int) weight of the (logqs - logqs_i) term of the ELBO
+    d: (int) weight of the (logqs_i - logps_cu) term of the ELBO
+    gamma: (int) ? used for TCL?
+    lr: (float) learning rate
+    batch_size: (int) batch size
+    epochs: (int) total number of epochs
+    no_scheduler: (bool) use a scheduler for the optimizer (true if not)
+    scheduler_tol: (int) scheduler tolerance
+    anneal: (bool) annealing
+    anneal_epoch: (int)
+    
+    # more configs
+    shuffle: (bool) shuffle data from the trainig batch
+    one_hot: (bool) one-hot encode the segments U
+    checkpoint: (bool) save the weights and meta-data in every epoch
+    log: (bool) save logs of the experiment. Does not work properly yet!
+    '''
     parser = argparse.ArgumentParser(description='')
 
     parser.add_argument('--config', type=str, default='ivae.yaml', help='Path to the config file')
@@ -49,7 +94,7 @@ def main():
     make_dirs(args)
 
     with open(os.path.join('configs', args.config), 'r') as f:
-        config = yaml.load(f)
+        config = yaml.load(f, Loader=yaml.FullLoader)
     new_config = dict2namespace(config)
     new_config.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # print(new_config)
