@@ -239,12 +239,6 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
                                                 var_bounds=var_bounds, dtype=dtype,
                                                 uncentered=uncentered, centers=centers, staircase=staircase)
     n = n_per_seg * n_seg
-
-    # if U is a vector, transform it in a matrix, so that aux_dim=1
-    try:
-        U.shape[1]
-    except:
-        U = np.expand_dims(U, axis=1)
     
     # non linearity
     if activation == 'lrelu':
@@ -294,7 +288,14 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
     if not batch_size:
         if one_hot_labels:
             U = to_one_hot([U], m=n_seg)[0]
+            
+        # if U is a vector, transform it in a matrix, so that aux_dim=1
+        try:
+            U.shape[1]
+        except:
+            U = np.expand_dims(U, axis=1)
         return S, X, U, M, L
+    
     else:
         idx = np.random.permutation(n)
         Xb, Sb, Ub, Mb, Lb = [], [], [], [], []
@@ -307,6 +308,13 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
             Lb += [L[idx][c * batch_size:(c + 1) * batch_size]]
         if one_hot_labels:
             Ub = to_one_hot(Ub, m=n_seg)
+            
+    # if U is a vector, transform it in a matrix, so that aux_dim=1
+    try:
+        U.shape[1]
+    except:
+        U = np.expand_dims(U, axis=1)
+        
         return Sb, Xb, Ub, Mb, Lb
 
 
@@ -367,9 +375,13 @@ class SyntheticDataset(Dataset):
             path_to_dataset += '_u'
         if noisy:
             path_to_dataset += '_noisy'
+        if one_hot_labels:
+            path_to_dataset += '_one_hot'
         path_to_dataset += '.npz'
 
         if not os.path.exists(path_to_dataset) or s is None:
+            # if the path is not found or if the seed is not defined,
+            # create a new dataset
             kwargs = {"n_per_seg": nps, "n_seg": ns, "d_sources": dl, "d_data": dd, "n_layers": nl, "prior": p,
                       "activation": a, "seed": s, "batch_size": 0, "uncentered": uncentered, "noisy": noisy,
                       "centers": centers, "repeat_linearity": True, "one_hot_labels": one_hot_labels}
