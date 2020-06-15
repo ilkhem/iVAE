@@ -38,3 +38,4 @@ shuffle: true
 one_hot: true
 checkpoint: false
 log: false
+simple_mixing: false

@@ -17,24 +17,24 @@ def parse():
     ns: (int) number of segments (n_seg)
     dl: (int) dimension of latent sources (d_sources)
     dd: (int) d_data (dimension of the mixed data)
-    nl: (int) number of layers (for ICA mixing)
+    nl: (int) number of layers for ICA mixing
     s: (int) seed for the data generation only
     -- seed is used to set the model seed.
     
-    p: (str) probability distribution (e.g. 'gauss' for Normal)
-    act: (str) activation function for the mixing transformation (e.g. 'none')
-    uncentered: (bool) means of the different distributions (True if they have different means)
-    noisy: (bool) whether to add noise to the observations
+    p: (str) probability distribution (e.g. 'gauss' for Normal, 'lap' for Laplace, 'hs' for Hypersecant)
+    act: (str) activation function for the mixing transformation (e.g. 'none', 'lrelu', 'sigmoid')
+    uncentered: (bool) if True, different distributions have different means
+    noisy: (bool) if True, add noise to the observations
     staircase: (bool)
     
     # model args
     n_layers: (int) number of layers in the MLP
     hidden_dim: (int) number of dimensions in each hidden layer
-    activation: (str) activation function of the MLP (e.g. 'lrelu')
-    ica: (bool) run the iVAE (true) or VAE
+    activation: (str) activation function of the MLP (e.g. 'lrelu', 'none', 'sigmoid')
+    ica: (bool) if True, run the iVAE. If False, run the VAE
     initialize: (bool) weight initialization
     batch_norm: (bool) batch normalization
-    tcl: (bool) whether to run TCL (false if you want to run the iVAE)
+    tcl: (bool) if True, run TCL. If False, run the iVAE
     
     # learning
     a: (int) weight of the logpx term of the ELBO
@@ -45,16 +45,18 @@ def parse():
     lr: (float) learning rate
     batch_size: (int) batch size
     epochs: (int) total number of epochs
-    no_scheduler: (bool) use a scheduler for the optimizer (true if not)
+    no_scheduler: (bool) if False, use a scheduler for the optimizer
     scheduler_tol: (int) scheduler tolerance
     anneal: (bool) annealing
     anneal_epoch: (int)
     
     # more configs
-    shuffle: (bool) shuffle data from the trainig batch
-    one_hot: (bool) one-hot encode the segments U
-    checkpoint: (bool) save the weights and meta-data in every epoch
-    log: (bool) save logs of the experiment. Does not work properly yet!
+    shuffle: (bool) if True, shuffle data from the trainig batch
+    one_hot: (bool) if True, one-hot encode the segments U
+    checkpoint: (bool) if True, save the weights and meta-data in every epoch
+    log: (bool) if True, save logs of the experiment. Does not work properly yet, use False!
+    simple_mixing: if True, have elements of mixing matrix from a Uniform distribution \
+    and skip all the other mixing code
     '''
     parser = argparse.ArgumentParser(description='')
 

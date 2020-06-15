@@ -200,7 +200,7 @@ def generate_nonstationary_sources(n_per_seg: int, n_seg: int, d: int, prior='ga
 def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='gauss', activation='lrelu', batch_size=0,
                   seed=10, slope=.1, var_bounds=np.array([0.5, 3]), lin_type='uniform', n_iter_4_cond=1e4,
                   dtype=np.float32, noisy=0, uncentered=False, centers=None, staircase=False, discrete=False,
-                  one_hot_labels=True, repeat_linearity=False):
+                  one_hot_labels=True, repeat_linearity=False, simple_mixing=True, mix_bounds=np.array([-1, 1])):
     """
     Generate artificial data with arbitrary mixing
     @param int n_per_seg: number of observations per segment
@@ -212,7 +212,7 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
     @param str prior: prior distribution of the sources; can be `lap` for Laplace or `hs` for Hypersecant
     @param int batch_size: batch size if data is to be returned as batches. 0 for a single batch of size n
     @param int seed: random seed
-    @param var_bounds: upper and lower bounds for the modulation parameter
+    @param np.ndarray var_bounds: upper and lower bounds for the modulation parameter
     @param float slope: slope parameter for `lrelu` or `xtanh`
     @param str lin_type: specifies the type of matrix entries; can be `uniform` or `orthogonal`
     @param int n_iter_4_cond: number of iteration to compute condition threshold of the mixing matrix
@@ -222,9 +222,13 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
     @param np.ndarray centers: array of centers if uncentered == True
     @param bool staircase: if True, generate staircase data
     @param bool one_hot_labels: if True, transform labels into one-hot vectors
+    @param bool simple_mixing: if True, have elements of mixing matrix from a Uniform distribution \
+    and skip all the other mixing code
+    @param np.ndarray mix_bounds: upper and lower bounds of the Uniform distribution \
+    (only active when simple_mixing == True)
 
     @return:
-        tuple of batches of generated (sources, data, auxiliary variables, mean, variance)
+        tuple of batches of generated (sources, data, auxiliary variables, mean, variance, mixing matrix)
     @rtype: tuple
 
     """
@@ -254,29 +258,35 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
 
     # Mixing time!
 
-    if not repeat_linearity:
-        X = S.copy()
-        for nl in range(n_layers):
-            A = generate_mixing_matrix(X.shape[1], d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype,
-                                       staircase=staircase)
-            if nl == n_layers - 1:
-                X = np.dot(X, A)
-            else:
-                X = act_f(np.dot(X, A))
-
+    if simple_mixing:
+        A = np.random.uniform(mix_bounds[0], mix_bounds[1], (d_sources, d_sources)).astype(dtype)
+        X = np.dot(S, A)
+        
     else:
-        assert n_layers > 1  # suppose we always have at least 2 layers. The last layer doesn't have a non-linearity
-        A = generate_mixing_matrix(d_sources, d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
-        X = act_f(np.dot(S, A))
-        if d_sources != d_data:
-            B = generate_mixing_matrix(d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
+        if not repeat_linearity:
+            X = S.copy()
+            for nl in range(n_layers):
+                A = generate_mixing_matrix(X.shape[1], d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype,
+                                           staircase=staircase)
+                if nl == n_layers - 1:
+                    X = np.dot(X, A)
+                else:
+                    X = act_f(np.dot(X, A))
+
         else:
-            B = A
-        for nl in range(1, n_layers):
-            if nl == n_layers - 1:
-                X = np.dot(X, B)
+            assert n_layers > 1  # suppose we always have at least 2 layers. The last layer doesn't have a non-linearity
+            A = generate_mixing_matrix(d_sources, d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
+            X = act_f(np.dot(S, A))
+            if d_sources != d_data:
+                B = generate_mixing_matrix(d_data, lin_type=lin_type, n_iter_4_cond=n_iter_4_cond, dtype=dtype)
             else:
-                X = act_f(np.dot(X, B))
+                B = A
+            for nl in range(1, n_layers):
+                if nl == n_layers - 1:
+                    X = np.dot(X, B)
+                else:
+                    X = act_f(np.dot(X, B))
+                    
 
     # add noise:
     if noisy:
@@ -294,7 +304,7 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
             U.shape[1]
         except:
             U = np.expand_dims(U, axis=1)
-        return S, X, U, M, L
+        return S, X, U, M, L, A
     
     else:
         idx = np.random.permutation(n)
@@ -315,23 +325,27 @@ def generate_data(n_per_seg, n_seg, d_sources, d_data=None, n_layers=3, prior='g
     except:
         U = np.expand_dims(U, axis=1)
         
-        return Sb, Xb, Ub, Mb, Lb
+        return Sb, Xb, Ub, Mb, Lb, A
 
 
 def save_data(path, *args, **kwargs):
+    """
+    Generate data and save it.
+    :param str path: path where to save the data
+    """
     kwargs['batch_size'] = 0  # leave batch creation to torch DataLoader
-    S, X, U, M, L = generate_data(*args, **kwargs)
+    S, X, U, M, L, A = generate_data(*args, **kwargs)
     print('Creating dataset {} ...'.format(path))
     dir_path = '/'.join(path.split('/')[:-1])
     if not os.path.exists(dir_path):
         os.makedirs('/'.join(path.split('/')[:-1]))
-    np.savez_compressed(path, s=S, x=X, u=U, m=M, L=L)
+    np.savez_compressed(path, s=S, x=X, u=U, m=M, L=L, A=A)
     print(' ... done')
 
 
 class SyntheticDataset(Dataset):
     def __init__(self, root, nps, ns, dl, dd, nl, s, p, a, uncentered=False, noisy=False, centers=None, double=False,
-                 one_hot_labels=False):
+                 one_hot_labels=False, simple_mixing=True):
         self.root = root
         data = self.load_tcl_data(root, nps, ns, dl, dd, nl, s, p, a, uncentered, noisy, centers, one_hot_labels)
         self.data = data
@@ -340,6 +354,7 @@ class SyntheticDataset(Dataset):
         self.u = torch.from_numpy(data['u'])
         self.l = data['L']
         self.m = data['m']
+        self.A_mix = data['A']
         self.len = self.x.shape[0]
         self.latent_dim = self.s.shape[1]
         self.aux_dim = self.u.shape[1]
