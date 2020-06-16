@@ -26,9 +26,10 @@ def runner(args, config):
     loader_params = {'num_workers': 6, 'pin_memory': True} if torch.cuda.is_available() else {}
     data_loader = DataLoader(dset, batch_size=config.batch_size, shuffle=config.shuffle, drop_last=True, **loader_params)
 
-    perfs = []
+#     perfs = []
     loss_hists = []
     perf_hists = []
+    all_perf_hists = []
     
     # to do: pass the paths as parameters from main.py
     if config.checkpoint:
@@ -63,6 +64,11 @@ def runner(args, config):
 
         loss_hist = []
         perf_hist = []
+        all_mccs = []
+        
+        # load all training data for eventual evaluation
+        Xt, Ut, St = dset.x.to(config.device), dset.u.to(config.device), dset.s
+        
         for epoch in range(1, config.epochs + 1):
             model.train()
 
@@ -89,9 +95,11 @@ def runner(args, config):
                     x, u, s_true = data
                 else:
                     x, x2, u, s_true = data
+                
                 x, u = x.to(config.device), u.to(config.device)
                 optimizer.zero_grad()
                 loss, z = model.elbo(x, u, len(dset), a=a, b=b, c=c, d=d)
+                
                 if factor:
                     D_z = D(z)
                     vae_tc_loss = (D_z[:, :1] - D_z[:, 1:]).mean()
@@ -99,7 +107,10 @@ def runner(args, config):
 
                 loss.backward(retain_graph=factor)
 
+                # batch loss
                 train_loss += loss.item()
+                
+                # batch performance
                 try:
                     perf = mcc(s_true.numpy(), z.cpu().detach().numpy())
                 except:
@@ -128,12 +139,25 @@ def runner(args, config):
             perf_hist.append(train_perf)
             train_loss /= len(data_loader)
             loss_hist.append(train_loss)
-            print('==> Epoch {}/{}:\ttrain loss: {:.6f}\ttrain perf: {:.6f}'.format(epoch, config.epochs, train_loss,
-                                                                                    train_perf))
+            
+            if config.ica:
+                _, _, _, s, _ = model(Xt, Ut)
+            else:
+                _, _, _, s = model(Xt)
+            
+            # MCC score on the whole dataset (as opposed to just the training batch)
+            try:
+                perf_all = mcc(dset.s.numpy(), s.cpu().detach().numpy())
+            except:
+                perf_all = 0
+                
+            all_mccs.append(perf_all)    
+            print('==> Epoch {}/{}:\t train loss: {:.6f}\t train perf: {:.6f} \t full perf: {:,.6f}'.format(epoch, config.epochs, train_loss, train_perf, perf_all))
+            
             if config.checkpoint:
-                # save weights after every epoch
+                # save checkpoints (weights, loss, performance, meta-data) after every epoch
                 checkpoint(ckpt_folder, exp_id, seed, epoch, model, optimizer,
-                           train_loss, train_perf)
+                           train_loss, train_perf, perf_all)
             
             if (config.log):
                 logger.log()
@@ -145,28 +169,15 @@ def runner(args, config):
         print('\ntotal runtime: {} seconds'.format(ttime_s))
         print('\ntotal runtime: {} minutes'.format(ttime_s/60))
 
-        # evaluate perf on full dataset
-        Xt, Ut, St = dset.x.to(config.device), dset.u.to(config.device), dset.s
-        if config.ica:
-            _, _, _, s, _ = model(Xt, Ut)
-        else:
-            _, _, _, s = model(Xt)
-         
-        # if one of the simulations results in nans, skip it
-        try:
-            full_perf = mcc(dset.s.numpy(), s.cpu().detach().numpy())
-            perfs.append(full_perf)
-            loss_hists.append(loss_hist)
-            perf_hists.append(perf_hist)
-        except:
-            continue
+        all_perf_hists.append(all_mccs)
+        loss_hists.append(loss_hist)
+        perf_hists.append(perf_hist)
         
         if config.log:
-            logger.add_metadata(full_perf=full_perf)
             logger.add_metadata(method='ivae', lr=config.lr, seed=config.s, idim=d_latent,
                                     n_layers=config.n_layers, batch_size=config.batch_size, hidden_dim=config.hidden_dim, anneal=config.anneal)
             logger.add_metadata(data_seed=config.s, nps=config.nps, ns=config.ns, ld=d_sources, dd=d_data, mixing_layers=config.nl)
             exp_id = logger.exp_id
             logger.save_to_npz(log_dir=dir_log)
 
-    return perfs, loss_hists, perf_hists
+    return all_perf_hists, loss_hists, perf_hists

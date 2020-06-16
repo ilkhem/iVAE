@@ -52,7 +52,7 @@ def from_log(args, argv, logpath):
     return new_d, add_to_log
 
 
-def checkpoint(path, exp_id, seed, iteration, model, optimizer, loss, perf):
+def checkpoint(path, exp_id, seed, iteration, model, optimizer, loss, perf, full_perf):
     sub_path = make_dir(path + str(exp_id) + '/')
     weights_path = sub_path + str(exp_id) + '_seed_' + str(seed) + '_ckpt_' + str(iteration) + '.pth'
     print('.. checkpoint at iteration {} ..'.format(iteration))
@@ -60,8 +60,9 @@ def checkpoint(path, exp_id, seed, iteration, model, optimizer, loss, perf):
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss,
-                'perf': perf},
-               weights_path)
+                'perf': perf,
+                'mcc_dataset': full_perf},
+                weights_path)
 
 
 class RunningAverageMeter(object):
